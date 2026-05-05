@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   Atmos — Weather app
+   Clean Weather — a minimalist weather app
    A small React app that fetches weather from Open-Meteo and renders it with
    gradient backgrounds, a 24-hour line chart, and an 8-day line chart with a
    per-day detail panel.
@@ -826,13 +826,13 @@ function App() {
   const [selectedHourIdx, setSelectedHourIdx] = useState(null); // null = "Now"
   const [selectedDayIdx,  setSelectedDayIdx]  = useState(0);    // 0 = Today
   const [units, setUnits]       = useState(() => {
-    try { return localStorage.getItem("atmos.units") || "metric"; }
+    try { return localStorage.getItem("cleanweather.units") || "metric"; }
     catch { return "metric"; }
   });
 
   // Persist unit choice
   useEffect(() => {
-    try { localStorage.setItem("atmos.units", units); } catch {}
+    try { localStorage.setItem("cleanweather.units", units); } catch {}
   }, [units]);
 
   // Load forecast whenever place or units change. Reset selections too.
