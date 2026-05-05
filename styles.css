@@ -1,0 +1,66 @@
+/* ---------------------------------------------------------------------------
+   Atmos — Weather app styles
+   Tailwind handles most utilities at runtime via the CDN. This file holds
+   the global base styles and the small set of custom classes the app uses.
+--------------------------------------------------------------------------- */
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #fff;
+  overflow-x: hidden;
+}
+
+/* Slow animated pan on the gradient background */
+.bg-anim {
+  background-size: 200% 200%;
+  animation: shift 18s ease infinite;
+}
+
+@keyframes shift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Hide scrollbar on the horizontal forecast strips */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Frosted glass card — tuned for dark gradients */
+.glass {
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+/* Tabular numbers for forecast values that line up across rows */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle fade + lift used by the current-conditions section and detail panel */
+.fade-in {
+  animation: fade 0.5s ease both;
+}
+
+@keyframes fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
