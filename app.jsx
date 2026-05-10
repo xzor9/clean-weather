@@ -283,8 +283,43 @@ function round(n) { return Math.round(n); }
    UI Components
 --------------------------------------------------------------------------- */
 
-function TopBar({ place, onSearch, onLocate, query, setQuery }) {
-  const [open, setOpen] = useState(false);
+function TopBar({ place, onSelectPlace, onLocate }) {
+  const [open,      setOpen]      = useState(false);
+  const [query,     setQuery]     = useState("");
+  const [results,   setResults]   = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState(null);
+
+  const close = () => { setOpen(false); setQuery(""); setResults([]); setSearchErr(null); };
+
+  const pickResult = (r) => {
+    onSelectPlace({
+      name: r.name + (r.admin1 ? `, ${r.admin1}` : ""),
+      country: r.country_code,
+      lat: r.latitude,
+      lon: r.longitude,
+    });
+    close();
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+    setSearching(true);
+    setSearchErr(null);
+    setResults([]);
+    try {
+      const res = await geocodeCity(query);
+      if (!res.length) { setSearchErr(`No results for "${query}"`); return; }
+      if (res.length === 1) { pickResult(res[0]); return; }
+      setResults(res);
+    } catch (err) {
+      setSearchErr(err.message);
+    } finally {
+      setSearching(false);
+    }
+  };
+
   return (
     <div className="flex items-center gap-2 px-5 pt-5 pb-2">
       <button
@@ -299,7 +334,7 @@ function TopBar({ place, onSearch, onLocate, query, setQuery }) {
         <div className="text-xl font-semibold leading-tight">{place?.name || "—"}</div>
       </div>
       <button
-        onClick={() => { if (open) setQuery(""); setOpen(o => !o); }}
+        onClick={() => open ? close() : setOpen(true)}
         title="Search city"
         className="p-2 rounded-full glass hover:bg-white/20 transition"
       >
@@ -309,19 +344,47 @@ function TopBar({ place, onSearch, onLocate, query, setQuery }) {
       {open && (
         <div className="absolute left-0 right-0 top-20 px-5 z-20">
           <form
-            onSubmit={(e) => { e.preventDefault(); onSearch(query); setOpen(false); }}
+            onSubmit={handleSubmit}
             className="glass-strong rounded-2xl p-2 flex items-center gap-2"
           >
             <Icon name="search" className="w-5 h-5 ml-2 opacity-80" />
             <input
               autoFocus
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => { setQuery(e.target.value); setResults([]); setSearchErr(null); }}
+              onKeyDown={(e) => e.key === "Escape" && close()}
               placeholder="Search a city…"
               className="flex-1 bg-transparent outline-none placeholder-white/60 px-1 py-2"
             />
-            <button className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-sm">Go</button>
+            <button
+              className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-sm disabled:opacity-50"
+              disabled={searching}
+            >
+              {searching ? "…" : "Go"}
+            </button>
           </form>
+
+          {searchErr && (
+            <div className="mt-2 glass rounded-xl px-4 py-2 text-sm opacity-90">{searchErr}</div>
+          )}
+
+          {results.length > 0 && (
+            <div className="mt-2 glass-strong rounded-2xl overflow-hidden">
+              {results.map((r, i) => (
+                <button
+                  key={i}
+                  onClick={() => pickResult(r)}
+                  className="w-full text-left px-4 py-3 hover:bg-white/15 transition flex items-baseline gap-2 border-b border-white/10 last:border-0"
+                >
+                  <span className="font-medium">{r.name}</span>
+                  {r.admin1 && <span className="text-sm opacity-70">{r.admin1}</span>}
+                  <span className="ml-auto text-xs opacity-55 uppercase tracking-widest shrink-0">
+                    {r.country_code}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -836,6 +899,49 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
 }
 
 /* ---------------------------------------------------------------------------
+   AnimatedBg — cross-fades between two gradient layers so weather-colour
+   changes don't pop. The "back" layer holds the old gradient (visible
+   immediately); the "front" layer fades in over it via CSS animation.
+   A ref tracks the current front value to avoid stale-closure issues.
+--------------------------------------------------------------------------- */
+
+function AnimatedBg({ gradient, children }) {
+  const [back,  setBack]  = useState(gradient);
+  const [front, setFront] = useState(gradient);
+  const [gen,   setGen]   = useState(0);
+  const frontRef = useRef(gradient);
+  const prevSig  = useRef(gradient.join());
+
+  useEffect(() => {
+    const sig = gradient.join();
+    if (sig === prevSig.current) return;
+    prevSig.current = sig;
+    setBack(frontRef.current);
+    frontRef.current = gradient;
+    setFront(gradient);
+    setGen(g => g + 1);
+  }, [gradient]);
+
+  const bgImage = (g) =>
+    `linear-gradient(160deg, ${g[0]} 0%, ${g[1]} 50%, ${g[2]} 100%)`;
+
+  return (
+    <div className="relative min-h-screen overflow-hidden">
+      <div
+        className="bg-anim absolute inset-0"
+        style={{ backgroundImage: bgImage(back) }}
+      />
+      <div
+        key={gen}
+        className="bg-anim bg-fade-in absolute inset-0"
+        style={{ backgroundImage: bgImage(front) }}
+      />
+      <div className="relative" style={{ zIndex: 1 }}>{children}</div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
    App
 --------------------------------------------------------------------------- */
 
@@ -844,7 +950,6 @@ function App() {
   const [data,  setData]        = useState(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
-  const [query, setQuery]       = useState("");
   const [fetchedAt, setFetchedAt]             = useState(null);
   const [selectedHourIdx, setSelectedHourIdx] = useState(null); // null = "Now"
   const [selectedDayIdx,  setSelectedDayIdx]  = useState(0);    // 0 = Today
@@ -905,23 +1010,6 @@ function App() {
     return { ...data, current: displayCurrent };
   }, [data, displayCurrent]);
 
-  const handleSearch = async (q) => {
-    if (!q?.trim()) return;
-    try {
-      const results = await geocodeCity(q);
-      if (!results.length) { setError(`No matches for "${q}"`); return; }
-      const r = results[0];
-      setPlace({
-        name: r.name + (r.admin1 ? `, ${r.admin1}` : ""),
-        country: r.country_code,
-        lat: r.latitude,
-        lon: r.longitude,
-      });
-    } catch (e) {
-      setError(e.message);
-    }
-  };
-
   const handleLocate = () => {
     if (!navigator.geolocation) { setError("Geolocation not available"); return; }
     navigator.geolocation.getCurrentPosition(async (pos) => {
@@ -944,18 +1032,12 @@ function App() {
     return gradientFor(tF, g, isDay);
   }, [viewData, units]);
 
-  const bgStyle = {
-    backgroundImage: `linear-gradient(160deg, ${gradient[0]} 0%, ${gradient[1]} 50%, ${gradient[2]} 100%)`,
-  };
-
   return (
-    <div className="min-h-screen bg-anim relative" style={bgStyle}>
+    <AnimatedBg gradient={gradient}>
       <div className="max-w-2xl mx-auto pb-10 relative">
         <TopBar
           place={place}
-          query={query}
-          setQuery={setQuery}
-          onSearch={handleSearch}
+          onSelectPlace={setPlace}
           onLocate={handleLocate}
         />
 
@@ -1014,7 +1096,7 @@ function App() {
           </>
         ) : null}
       </div>
-    </div>
+    </AnimatedBg>
   );
 }
 

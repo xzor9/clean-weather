@@ -55,6 +55,16 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Gradient cross-fade: new layer fades in over the previous one */
+.bg-fade-in {
+  animation: fadeBg 1.2s ease forwards, shift 18s ease infinite;
+}
+
+@keyframes fadeBg {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* Subtle fade + lift used by the current-conditions section and detail panel */
 .fade-in {
   animation: fade 0.5s ease both;
