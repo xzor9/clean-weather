@@ -98,26 +98,31 @@ function wxInfo(code) {
 }
 
 // Build a gradient based on temperature and condition group (and day/night).
-// All palettes are dark-mode: low luminance with a hue that hints at the weather.
+// Daytime palettes are weather-toned; night palettes stay dark.
 function gradientFor(temp, group, isDay) {
-  // Night → deepest indigos and near-blacks
+  // Night → deep indigos and near-blacks
   if (!isDay) {
     if (group === "storm") return ["#160a2e", "#241247", "#06040f"];
     if (group === "rain")  return ["#0e1a33", "#1a2a4d", "#05080f"];
     if (group === "snow")  return ["#15243a", "#27395a", "#0a1020"];
     if (group === "fog")   return ["#181b24", "#2a2e3a", "#0a0c12"];
-    return                ["#0a0f24", "#1a214a", "#04060f"];
+    if (group === "cloud") return ["#101520", "#1c2430", "#080c14"];
+    if (group === "partly")return ["#0c1838", "#182448", "#060c20"];
+    return                 ["#080e30", "#121c48", "#040818"]; // clear night
   }
-  // Daytime — still dark, but with a hint of the weather's color
-  if (group === "storm")   return ["#1f2238", "#2e3354", "#0d0f1c"];
-  if (group === "snow")    return ["#1f3148", "#34516e", "#0e1825"]; // muted icy blue
-  if (group === "rain")    return ["#15293f", "#264761", "#080f17"];
-  if (group === "fog")     return ["#22262f", "#383d4a", "#0e1015"];
-  if (temp >= 90)          return ["#3a0f0a", "#6b2317", "#1a0604"]; // deep ember
-  if (temp >= 75)          return ["#321a0a", "#5a2f14", "#160805"]; // warm amber-dark
-  if (temp >= 60)          return ["#0f2c2a", "#1d4a47", "#06120f"]; // deep teal
-  if (temp >= 40)          return ["#161a3a", "#262c5e", "#080a1a"]; // dusk indigo
-  return                   ["#0d1f3a", "#1c3358", "#040810"]; // chilly midnight blue
+  // Daytime — weather-toned colours (dark enough to keep white text readable)
+  if (group === "storm")  return ["#2d2d3a", "#434355", "#1e1e28"]; // dark purple-grey
+  if (group === "rain")   return ["#263238", "#37474f", "#1a2428"]; // slate grey-blue
+  if (group === "snow")   return ["#2a4a6a", "#4a7090", "#1a3050"]; // icy blue-grey
+  if (group === "fog")    return ["#4a5060", "#6a7080", "#303540"]; // muted grey
+  if (group === "cloud")  return ["#455a64", "#607d8b", "#2c3e47"]; // blue-grey
+  if (group === "partly") return ["#1565c0", "#42a5f5", "#0d47a1"]; // partly-sunny blue
+  // clear sky — temperature-based sky colours
+  if (temp >= 90) return ["#bf360c", "#e64a19", "#870000"]; // scorching orange
+  if (temp >= 75) return ["#0277bd", "#29b6f6", "#01579b"]; // bright warm sky
+  if (temp >= 60) return ["#1565c0", "#1e88e5", "#0d47a1"]; // classic sky blue
+  if (temp >= 40) return ["#1a3a6a", "#2a5a9a", "#0e2550"]; // cool clear blue
+  return                  ["#283593", "#3949ab", "#1a237e"]; // cold indigo
 }
 
 /* ---------------------------------------------------------------------------
