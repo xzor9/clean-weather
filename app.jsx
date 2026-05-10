@@ -678,6 +678,25 @@ function TempChart({ points, units, secondary = null, height = 170, colWidth = 6
   );
 }
 
+// Redirect vertical mouse-wheel events to horizontal scroll.
+// passive:false is required so preventDefault() can suppress page scroll.
+function useHorizontalScroll() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return; // let trackpad h-scroll through
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+  return ref;
+}
+
 function HourlyStrip({ data, units, selectedIdx, onSelect }) {
   if (!data) return null;
   const { hourly, current, timezone } = data;
@@ -715,13 +734,14 @@ function HourlyStrip({ data, units, selectedIdx, onSelect }) {
     };
   });
 
+  const scrollRef = useHorizontalScroll();
   return (
     <div className="px-5 mt-4">
       <div className="text-xs uppercase tracking-[0.2em] opacity-75 mb-2 px-1">
         Hourly Forecast
         <span className="ml-2 normal-case tracking-normal opacity-60">· tap to preview</span>
       </div>
-      <div className="glass rounded-2xl py-2 overflow-x-auto no-scrollbar">
+      <div ref={scrollRef} className="glass rounded-2xl py-2 overflow-x-auto no-scrollbar">
         <TempChart
           points={points}
           units={units}
@@ -873,13 +893,14 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
     icon: wxInfo(daily.weather_code[i]).icon,
   }));
 
+  const scrollRef = useHorizontalScroll();
   return (
     <div className="px-5 mt-4 mb-6">
       <div className="text-xs uppercase tracking-[0.2em] opacity-75 mb-2 px-1">
         8-Day Forecast
         <span className="ml-2 normal-case tracking-normal opacity-60">· tap a day for details</span>
       </div>
-      <div className="glass rounded-2xl py-2 overflow-x-auto no-scrollbar">
+      <div ref={scrollRef} className="glass rounded-2xl py-2 overflow-x-auto no-scrollbar">
         <TempChart
           points={highs}
           secondary={lows}
