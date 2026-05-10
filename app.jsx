@@ -21,7 +21,18 @@ async function geocodeCity(query) {
   return j.results || [];
 }
 
-async function fetchForecast(lat, lon, units = "metric") {
+async function reverseGeocode(lat, lon) {
+  const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
+  const r = await fetch(url, { headers: { "Accept-Language": "en" } });
+  if (!r.ok) return null;
+  const j = await r.json();
+  const a = j.address || {};
+  const name = a.city || a.town || a.village || a.county || null;
+  const country = a.country_code?.toUpperCase() || "";
+  return name ? { name, country } : null;
+}
+
+async function fetchForecast(lat, lon) {
   const params = new URLSearchParams({
     latitude: lat,
     longitude: lon,
@@ -30,18 +41,21 @@ async function fetchForecast(lat, lon, units = "metric") {
     daily:  "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,uv_index_max,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant",
     timezone: "auto",
     forecast_days: 8,
-    temperature_unit: units === "imperial" ? "fahrenheit" : "celsius",
-    wind_speed_unit: units === "imperial" ? "mph" : "kmh",
   });
   const r = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
   if (!r.ok) throw new Error("Forecast fetch failed");
   return r.json();
 }
 
-// Convert any temperature back to Fahrenheit (gradient thresholds are calibrated in F)
-function toF(temp, units) {
-  return units === "imperial" ? temp : (temp * 9/5) + 32;
+// Convert Celsius → Fahrenheit (gradient thresholds are calibrated in °F; data is always metric)
+function toF(tempC) {
+  return (tempC * 9/5) + 32;
 }
+
+// Client-side unit conversion — all API data is stored in metric
+function convertTemp(c, units)   { return units === "imperial" ? (c * 9/5) + 32 : c; }
+function convertWind(kmh, units) { return units === "imperial" ? kmh * 0.621371 : kmh; }
+function convertPrecip(mm, units){ return units === "imperial" ? mm * 0.0393701 : mm; }
 
 /* ---------------------------------------------------------------------------
    Weather code → label, icon, gradient
@@ -230,8 +244,8 @@ function fmtHour(iso, tz) {
 
 function fmtDay(iso, tz, idx) {
   if (idx === 0) return "Today";
-  const d = new Date(iso + "T12:00:00");
-  return d.toLocaleDateString("en-US", { weekday: "short", timeZone: tz });
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { weekday: "short", timeZone: tz });
 }
 
 function fmtTime(iso, tz) {
@@ -241,8 +255,13 @@ function fmtTime(iso, tz) {
   });
 }
 
-function fmtPrecip(mm) {
-  if (mm == null || mm < 0.05) return "0 mm";
+function fmtPrecip(mm, units) {
+  const unit = units === "imperial" ? "in" : "mm";
+  if (mm == null || mm < 0.05) return `0 ${unit}`;
+  if (units === "imperial") {
+    const inches = convertPrecip(mm, units);
+    return inches < 0.1 ? `${inches.toFixed(2)} in` : `${inches.toFixed(1)} in`;
+  }
   if (mm < 1) return `${mm.toFixed(1)} mm`;
   return `${Math.round(mm)} mm`;
 }
@@ -275,7 +294,7 @@ function TopBar({ place, onSearch, onLocate, query, setQuery }) {
         <div className="text-xl font-semibold leading-tight">{place?.name || "—"}</div>
       </div>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => { if (open) setQuery(""); setOpen(o => !o); }}
         title="Search city"
         className="p-2 rounded-full glass hover:bg-white/20 transition"
       >
@@ -304,12 +323,12 @@ function TopBar({ place, onSearch, onLocate, query, setQuery }) {
   );
 }
 
-function CurrentSection({ data, onClearSelection }) {
+function CurrentSection({ data, units, onClearSelection }) {
   if (!data) return null;
   const { current, daily, timezone } = data;
   const info = wxInfo(current.weather_code);
-  const hi = round(daily.temperature_2m_max[0]);
-  const lo = round(daily.temperature_2m_min[0]);
+  const hi = round(convertTemp(daily.temperature_2m_max[0], units));
+  const lo = round(convertTemp(daily.temperature_2m_min[0], units));
   const isPreview = !!current.__selected;
   const previewLabel = isPreview
     ? new Date(current.time).toLocaleString("en-US", { weekday: "short", hour: "numeric", hour12: true, timeZone: timezone })
@@ -327,11 +346,11 @@ function CurrentSection({ data, onClearSelection }) {
       )}
       <Icon name={info.icon} className="w-16 h-16 mx-auto opacity-95" />
       <div className="text-[7rem] leading-none font-extralight num mt-2">
-        {round(current.temperature_2m)}°
+        {round(convertTemp(current.temperature_2m, units))}°
       </div>
       <div className="text-lg opacity-95">{info.label}</div>
       <div className="text-sm opacity-80 mt-1 num">
-        H: {hi}°  ·  L: {lo}°  ·  Feels {round(current.apparent_temperature)}°
+        H: {hi}°  ·  L: {lo}°  ·  Feels {round(convertTemp(current.apparent_temperature, units))}°
       </div>
     </div>
   );
@@ -363,9 +382,9 @@ function StatGrid({ data, units }) {
   const windUnit = units === "imperial" ? "mph" : "km/h";
   return (
     <div className="px-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
-      <StatCard icon="feels" label="Feels Like" value={`${round(c.apparent_temperature)}°`} />
+      <StatCard icon="feels" label="Feels Like" value={`${round(convertTemp(c.apparent_temperature, units))}°`} />
       <StatCard icon="drop"  label="Humidity"   value={`${round(c.relative_humidity_2m)}%`} />
-      <StatCard icon="wind"  label="Wind"       value={`${round(c.wind_speed_10m)} ${windUnit}`} />
+      <StatCard icon="wind"  label="Wind"       value={`${round(convertWind(c.wind_speed_10m, units))} ${windUnit}`} />
       <StatCard icon="uv"    label="UV Index"   value={uv != null ? round(uv) : "—"} sub={uvLabel} />
     </div>
   );
@@ -606,22 +625,20 @@ function HourlyStrip({ data, units, selectedIdx, onSelect }) {
   const pop    = slice(hourly.precipitation_probability || []);
   const precip = slice(hourly.precipitation || []);
 
-  // Sublabel: mm of rain when significant, otherwise % when chance is high.
-  const fmtMm = (v) => v == null || v < 0.1 ? null : v < 1 ? v.toFixed(1) : Math.round(v);
   const points = times.map((t, i) => {
     const info = wxInfo(codes[i]);
-    const mm = fmtMm(precip[i]);
+    const precipMm = precip[i];
     let sublabel = "";
     let sublabelColor = "rgba(255,255,255,0.6)";
-    if (mm != null) {
-      sublabel = `${mm} mm`;
+    if (precipMm != null && precipMm >= 0.1) {
+      sublabel = fmtPrecip(precipMm, units);
       sublabelColor = "#7dd3fc";
     } else if (pop[i] >= 30) {
       sublabel = `${pop[i]}%`;
       sublabelColor = "#7dd3fc";
     }
     return {
-      temp: temps[i],
+      temp: convertTemp(temps[i], units),
       label: i === 0 ? "Now" : fmtHour(t, timezone),
       sublabel,
       sublabelColor,
@@ -671,8 +688,8 @@ function DailyDetail({ data, units, idx }) {
   const dateStr = date.toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", timeZone: timezone,
   });
-  const hi = Math.round(daily.temperature_2m_max[idx]);
-  const lo = Math.round(daily.temperature_2m_min[idx]);
+  const hi = round(convertTemp(daily.temperature_2m_max[idx], units));
+  const lo = round(convertTemp(daily.temperature_2m_min[idx], units));
   const feelsHi = daily.apparent_temperature_max?.[idx];
   const feelsLo = daily.apparent_temperature_min?.[idx];
   const pop = (daily.precipitation_probability_max || [])[idx];
@@ -723,22 +740,22 @@ function DailyDetail({ data, units, idx }) {
           <DetailRow
             icon="feels"
             label="Feels Like"
-            value={feelsHi != null ? `${Math.round(feelsHi)}°` : "—"}
-            sub={feelsLo != null ? `Low ${Math.round(feelsLo)}°` : null}
+            value={feelsHi != null ? `${round(convertTemp(feelsHi, units))}°` : "—"}
+            sub={feelsLo != null ? `Low ${round(convertTemp(feelsLo, units))}°` : null}
           />
           <DetailRow
             icon="drop"
             label="Precipitation"
             value={pop != null ? `${pop}%` : "—"}
-            sub={precip != null ? `${fmtPrecip(precip)} expected` : null}
+            sub={precip != null ? `${fmtPrecip(precip, units)} expected` : null}
           />
           <DetailRow
             icon="wind"
             label="Wind"
-            value={wind != null ? `${Math.round(wind)} ${windUnit}` : "—"}
+            value={wind != null ? `${round(convertWind(wind, units))} ${windUnit}` : "—"}
             sub={
               [
-                gust != null ? `Gusts ${Math.round(gust)} ${windUnit}` : null,
+                gust != null ? `Gusts ${round(convertWind(gust, units))} ${windUnit}` : null,
                 windDir != null ? `from ${compassDir(windDir)}` : null,
               ].filter(Boolean).join(" · ") || null
             }
@@ -746,7 +763,7 @@ function DailyDetail({ data, units, idx }) {
           <DetailRow
             icon="uv"
             label="Max UV"
-            value={uv != null ? `${Math.round(uv)}` : "—"}
+            value={uv != null ? `${round(uv)}` : "—"}
             sub={uvLabel}
           />
           <DetailRow
@@ -756,7 +773,7 @@ function DailyDetail({ data, units, idx }) {
             sub={`Daylight ${daylight}`}
           />
           <DetailRow
-            icon="cloud"
+            icon="sun"
             label="Sunset"
             value={fmtTime(sunset, timezone)}
             sub={null}
@@ -774,7 +791,7 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
   // Two lines: highs (primary) and lows (secondary). Today is the default
   // highlight, but a selected day overrides it via TempChart's selectedIdx.
   const highs = daily.time.map((d, i) => ({
-    temp: daily.temperature_2m_max[i],
+    temp: convertTemp(daily.temperature_2m_max[i], units),
     label: fmtDay(d, timezone, i),
     icon: wxInfo(daily.weather_code[i]).icon,
     highlight: i === 0,
@@ -784,7 +801,7 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
     sublabelColor: "#7dd3fc",
   }));
   const lows = daily.time.map((d, i) => ({
-    temp: daily.temperature_2m_min[i],
+    temp: convertTemp(daily.temperature_2m_min[i], units),
     icon: wxInfo(daily.weather_code[i]).icon,
   }));
 
@@ -823,6 +840,7 @@ function App() {
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
   const [query, setQuery]       = useState("");
+  const [fetchedAt, setFetchedAt]             = useState(null);
   const [selectedHourIdx, setSelectedHourIdx] = useState(null); // null = "Now"
   const [selectedDayIdx,  setSelectedDayIdx]  = useState(0);    // 0 = Today
   const [units, setUnits]       = useState(() => {
@@ -842,12 +860,12 @@ function App() {
     setError(null);
     setSelectedHourIdx(null);
     setSelectedDayIdx(0);
-    fetchForecast(place.lat, place.lon, units)
-      .then(d => { if (!cancelled) setData(d); })
+    fetchForecast(place.lat, place.lon)
+      .then(d => { if (!cancelled) { setData(d); setFetchedAt(new Date()); } })
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [place.lat, place.lon, units]);
+  }, [place.lat, place.lon]);
 
   // Find the index in hourly arrays that corresponds to "now" (absolute, not the slice).
   const nowAbsIdx = useMemo(() => {
@@ -904,6 +922,10 @@ function App() {
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const { latitude, longitude } = pos.coords;
       setPlace({ name: "Current location", country: "", lat: latitude, lon: longitude });
+      try {
+        const geo = await reverseGeocode(latitude, longitude);
+        if (geo) setPlace(prev => ({ ...prev, name: geo.name, country: geo.country }));
+      } catch {}
     }, (err) => setError(err.message), { timeout: 8000 });
   };
 
@@ -911,7 +933,7 @@ function App() {
   const gradient = useMemo(() => {
     if (!viewData) return ["#3a6fb5", "#9bc9e8", "#1d3f73"];
     const c = viewData.current;
-    const tF = toF(c.temperature_2m, units);
+    const tF = toF(c.temperature_2m);
     const g = wxInfo(c.weather_code).group;
     const isDay = !!c.is_day;
     return gradientFor(tF, g, isDay);
@@ -944,7 +966,7 @@ function App() {
           </div>
         ) : data ? (
           <>
-            <CurrentSection data={viewData} onClearSelection={() => setSelectedHourIdx(null)} />
+            <CurrentSection data={viewData} units={units} onClearSelection={() => setSelectedHourIdx(null)} />
             <StatGrid data={viewData} units={units} />
             <HourlyStrip
               data={data}
@@ -982,7 +1004,7 @@ function App() {
             </div>
 
             <div className="text-center text-[11px] opacity-60 px-5 mt-3">
-              Data by Open-Meteo · Refreshed {new Date().toLocaleTimeString()}
+              Data by Open-Meteo · Refreshed {fetchedAt ? fetchedAt.toLocaleTimeString() : "…"}
             </div>
           </>
         ) : null}
