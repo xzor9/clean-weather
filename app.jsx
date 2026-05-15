@@ -358,7 +358,7 @@ function allergyLevel(value) {
 function allergySummary(allergies, day) {
   const hourly = allergies?.hourly;
   if (!hourly?.time?.length || !day) {
-    return { value: "—", sub: "No pollen data" };
+    return null;
   }
 
   let top = null;
@@ -371,7 +371,7 @@ function allergySummary(allergies, day) {
     if (!top || max > top.max) top = { ...type, max };
   }
 
-  if (!top) return { value: "—", sub: "Unavailable here" };
+  if (!top) return null;
   const level = allergyLevel(top.max);
   return {
     value: level.value,
@@ -884,12 +884,14 @@ function DailyDetail({ data, units, idx }) {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <DetailRow
-            icon="allergy"
-            label="Allergies"
-            value={allergy.value}
-            sub={allergy.sub}
-          />
+          {allergy && (
+            <DetailRow
+              icon="allergy"
+              label="Allergies"
+              value={allergy.value}
+              sub={allergy.sub}
+            />
+          )}
           <DetailRow
             icon="feels"
             label="Feels Like"
