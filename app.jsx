@@ -47,6 +47,28 @@ async function fetchForecast(lat, lon) {
   return r.json();
 }
 
+async function fetchAllergies(lat, lon) {
+  const params = new URLSearchParams({
+    latitude: lat,
+    longitude: lon,
+    hourly: "alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,olive_pollen,ragweed_pollen",
+    timezone: "auto",
+    forecast_days: 4,
+  });
+  const r = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?${params}`);
+  if (!r.ok) return null;
+  const j = await r.json();
+  return j?.hourly?.time ? j : null;
+}
+
+async function fetchWeatherBundle(lat, lon) {
+  const [forecast, allergies] = await Promise.all([
+    fetchForecast(lat, lon),
+    fetchAllergies(lat, lon).catch(() => null),
+  ]);
+  return { ...forecast, allergies };
+}
+
 // Convert Celsius → Fahrenheit (gradient thresholds are calibrated in °F; data is always metric)
 function toF(tempC) {
   return (tempC * 9/5) + 32;
@@ -227,6 +249,14 @@ function Icon({ name, className = "w-8 h-8" }) {
           <path d="M12 4v2M12 18v2M4 12h2M18 12h2M6 6l1.4 1.4M16.6 16.6L18 18" />
         </svg>
       );
+    case "allergy":
+      return (
+        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+          <path d="M12 20V9" />
+          <path d="M12 15c-4.5 0-7-2.7-7-7 4.3 0 7 2.4 7 7z" />
+          <path d="M12 12c4.5 0 7-2.7 7-7-4.3 0-7 2.4-7 7z" />
+        </svg>
+      );
     case "feels":
       return (
         <svg viewBox="0 0 24 24" className={className} {...stroke}>
@@ -306,6 +336,47 @@ function dayIndexForTime(daily, iso) {
   const day = iso?.slice(0, 10);
   const idx = daily?.time?.findIndex(d => d === day) ?? -1;
   return idx >= 0 ? idx : 0;
+}
+
+const POLLEN_TYPES = [
+  { key: "alder_pollen", label: "Alder" },
+  { key: "birch_pollen", label: "Birch" },
+  { key: "grass_pollen", label: "Grass" },
+  { key: "mugwort_pollen", label: "Mugwort" },
+  { key: "olive_pollen", label: "Olive" },
+  { key: "ragweed_pollen", label: "Ragweed" },
+];
+
+function allergyLevel(value) {
+  if (value == null) return { label: "Unavailable", sub: "No pollen data", value: "—" };
+  if (value < 1) return { label: "Low", sub: "Minimal pollen", value: "Low" };
+  if (value < 20) return { label: "Moderate", sub: `${Math.round(value)} grains/m³`, value: "Mod" };
+  if (value < 80) return { label: "High", sub: `${Math.round(value)} grains/m³`, value: "High" };
+  return { label: "Very High", sub: `${Math.round(value)} grains/m³`, value: "Very" };
+}
+
+function allergySummary(allergies, day) {
+  const hourly = allergies?.hourly;
+  if (!hourly?.time?.length || !day) {
+    return { value: "—", sub: "No pollen data" };
+  }
+
+  let top = null;
+  for (const type of POLLEN_TYPES) {
+    const values = hourly.time
+      .map((t, i) => t.startsWith(day) ? hourly[type.key]?.[i] : null)
+      .filter(v => typeof v === "number" && Number.isFinite(v));
+    if (!values.length) continue;
+    const max = Math.max(...values);
+    if (!top || max > top.max) top = { ...type, max };
+  }
+
+  if (!top) return { value: "—", sub: "Unavailable here" };
+  const level = allergyLevel(top.max);
+  return {
+    value: level.value,
+    sub: `${level.label} · ${top.label} ${level.sub.toLowerCase()}`,
+  };
 }
 
 /* ---------------------------------------------------------------------------
@@ -776,6 +847,7 @@ function DailyDetail({ data, units, idx }) {
   const sunrise = (daily.sunrise || [])[idx];
   const sunset  = (daily.sunset  || [])[idx];
   const windUnit = units === "imperial" ? "mph" : "km/h";
+  const allergy = allergySummary(data.allergies, daily.time[idx]);
 
   const uvLabel =
     uv == null ? "—" :
@@ -812,6 +884,12 @@ function DailyDetail({ data, units, idx }) {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <DetailRow
+            icon="allergy"
+            label="Allergies"
+            value={allergy.value}
+            sub={allergy.sub}
+          />
           <DetailRow
             icon="feels"
             label="Feels Like"
@@ -937,7 +1015,7 @@ function App() {
     setError(null);
     setSelectedHourIdx(null);
     setSelectedDayIdx(0);
-    fetchForecast(place.lat, place.lon)
+    fetchWeatherBundle(place.lat, place.lon)
       .then(d => { if (!cancelled) { setData(d); setFetchedAt(new Date()); } })
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -1100,7 +1178,7 @@ function App() {
             </main>
 
             <div className="text-center text-[11px] opacity-60 px-5 mt-4">
-              Data by Open-Meteo · Refreshed {fetchedAt ? fetchedAt.toLocaleTimeString() : "…"}
+              Data by Open-Meteo · Pollen by CAMS · Refreshed {fetchedAt ? fetchedAt.toLocaleTimeString() : "…"}
             </div>
           </>
         ) : null}
