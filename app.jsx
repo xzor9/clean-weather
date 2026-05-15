@@ -410,7 +410,7 @@ function UnitToggle({ units, setUnits }) {
   );
 }
 
-function TopBar({ place, onSearch, onLocate, query, setQuery, units, setUnits, locating }) {
+function TopBar({ place, onSearch, onLocate, query, setQuery, locating }) {
   const [open, setOpen] = useState(false);
   return (
     <header className="px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-3">
@@ -429,10 +429,6 @@ function TopBar({ place, onSearch, onLocate, query, setQuery, units, setUnits, l
         <div className="min-w-0 flex-1 text-center sm:text-left">
           <div className="text-xs sm:text-sm uppercase tracking-[0.2em] opacity-75 truncate">{place?.country || " "}</div>
           <div className="text-xl sm:text-2xl font-semibold leading-tight truncate">{place?.name || "—"}</div>
-        </div>
-
-        <div className="hidden sm:block">
-          <UnitToggle units={units} setUnits={setUnits} />
         </div>
 
         <button
@@ -1133,8 +1129,6 @@ function App() {
           setQuery={setQuery}
           onSearch={handleSearch}
           onLocate={handleLocate}
-          units={units}
-          setUnits={setUnits}
           locating={locating}
         />
 
@@ -1153,9 +1147,6 @@ function App() {
             <main className="app-shell">
               <div className="lg:sticky lg:top-5 lg:self-start">
                 <CurrentSection data={viewData} units={units} onClearSelection={() => setSelectedHourIdx(null)} />
-                <div className="sm:hidden flex justify-center px-4 mb-4">
-                  <UnitToggle units={units} setUnits={setUnits} />
-                </div>
                 <StatGrid data={viewData} units={units} />
                 {loading && (
                   <div className="mx-4 sm:mx-6 lg:mx-0 mt-3 text-xs opacity-70 text-center lg:text-left">
@@ -1178,6 +1169,10 @@ function App() {
                 />
               </div>
             </main>
+
+            <div className="flex justify-center px-5 mt-4">
+              <UnitToggle units={units} setUnits={setUnits} />
+            </div>
 
             <div className="text-center text-[11px] opacity-60 px-5 mt-4">
               Data by Open-Meteo · Pollen by CAMS · Refreshed {fetchedAt ? fetchedAt.toLocaleTimeString() : "…"}
