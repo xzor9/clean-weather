@@ -14,6 +14,16 @@ body {
   -webkit-font-smoothing: antialiased;
   color: #fff;
   overflow-x: hidden;
+  text-rendering: optimizeLegibility;
+}
+
+button, input {
+  font: inherit;
+}
+
+button:disabled {
+  cursor: progress;
+  opacity: 0.65;
 }
 
 /* Slow animated pan on the gradient background */
@@ -50,6 +60,81 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.16);
 }
 
+.app-shell {
+  width: min(100%, 72rem);
+  margin: 0 auto;
+  display: grid;
+  gap: 1rem;
+}
+
+.icon-btn {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.icon-btn:active {
+  transform: scale(0.97);
+}
+
+.search-panel,
+.chart-shell {
+  border-radius: 1.25rem;
+}
+
+.forecast-section {
+  margin-top: 1rem;
+  padding-inline: 1rem;
+}
+
+.section-title {
+  padding-inline: 0.25rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  opacity: 0.75;
+}
+
+.chart-shell {
+  padding-block: 0.5rem;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chart-shell svg {
+  scroll-snap-align: start;
+}
+
+.stat-card {
+  min-height: 5.75rem;
+  border-radius: 1rem;
+  padding: 0.875rem;
+}
+
+.detail-row {
+  min-height: 4.25rem;
+  border-radius: 0.875rem;
+  padding: 0.75rem;
+}
+
+.hero-temp {
+  font-size: clamp(5rem, 24vw, 8rem);
+}
+
 /* Tabular numbers for forecast values that line up across rows */
 .num {
   font-variant-numeric: tabular-nums;
@@ -63,4 +148,32 @@ body {
 @keyframes fade {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: none; }
+}
+
+@media (min-width: 640px) {
+  .forecast-section {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-shell {
+    grid-template-columns: minmax(20rem, 25rem) minmax(0, 1fr);
+    gap: 2rem;
+    padding-inline: 2rem;
+    align-items: start;
+  }
+
+  .forecast-section {
+    padding-inline: 0;
+    margin-top: 0;
+  }
+
+  .forecast-section + .forecast-section {
+    margin-top: 1rem;
+  }
+
+  .hero-temp {
+    font-size: clamp(6.5rem, 11vw, 8.5rem);
+  }
 }

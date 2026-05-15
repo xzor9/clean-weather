@@ -242,22 +242,45 @@ function Icon({ name, className = "w-8 h-8" }) {
    Formatting helpers
 --------------------------------------------------------------------------- */
 
-function fmtHour(iso, tz) {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("en-US", { hour: "numeric", hour12: true, timeZone: tz });
+function parseLocalDateTime(iso) {
+  if (!iso) return null;
+  const [date, time = "00:00"] = iso.split("T");
+  const [y, m, d] = date.split("-").map(Number);
+  const [hh = 0, mm = 0] = time.split(":").map(Number);
+  return { y, m, d, hh, mm };
 }
 
-function fmtDay(iso, tz, idx) {
+function localAsUtcDate(iso) {
+  const p = parseLocalDateTime(iso);
+  return p ? new Date(Date.UTC(p.y, p.m - 1, p.d, p.hh, p.mm)) : null;
+}
+
+function fmtHour(iso) {
+  const p = parseLocalDateTime(iso);
+  if (!p) return "—";
+  const h = p.hh % 12 || 12;
+  return `${h} ${p.hh < 12 ? "AM" : "PM"}`;
+}
+
+function fmtPreviewTime(iso) {
+  const d = localAsUtcDate(iso);
+  return d
+    ? d.toLocaleString("en-US", { weekday: "short", hour: "numeric", hour12: true, timeZone: "UTC" })
+    : "—";
+}
+
+function fmtDay(iso, idx) {
   if (idx === 0) return "Today";
   const [y, m, d] = iso.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { weekday: "short", timeZone: tz });
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
 }
 
-function fmtTime(iso, tz) {
+function fmtTime(iso) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString("en-US", {
-    hour: "numeric", minute: "2-digit", hour12: true, timeZone: tz,
-  });
+  const p = parseLocalDateTime(iso);
+  if (!p) return "—";
+  const h = p.hh % 12 || 12;
+  return `${h}:${String(p.mm).padStart(2, "0")} ${p.hh < 12 ? "AM" : "PM"}`;
 }
 
 function fmtPrecip(mm, units) {
@@ -279,96 +302,143 @@ function compassDir(deg) {
 
 function round(n) { return Math.round(n); }
 
+function dayIndexForTime(daily, iso) {
+  const day = iso?.slice(0, 10);
+  const idx = daily?.time?.findIndex(d => d === day) ?? -1;
+  return idx >= 0 ? idx : 0;
+}
+
 /* ---------------------------------------------------------------------------
    UI Components
 --------------------------------------------------------------------------- */
 
-function TopBar({ place, onSearch, onLocate, query, setQuery }) {
+function UnitToggle({ units, setUnits }) {
+  return (
+    <div className="glass rounded-full p-1 flex items-center text-sm shrink-0" role="group" aria-label="Temperature units">
+      <button
+        type="button"
+        onClick={() => setUnits("metric")}
+        className={`min-h-10 px-4 rounded-full transition ${
+          units === "metric" ? "bg-white/25 font-medium" : "opacity-75 hover:opacity-100"
+        }`}
+        aria-pressed={units === "metric"}
+      >
+        °C
+      </button>
+      <button
+        type="button"
+        onClick={() => setUnits("imperial")}
+        className={`min-h-10 px-4 rounded-full transition ${
+          units === "imperial" ? "bg-white/25 font-medium" : "opacity-75 hover:opacity-100"
+        }`}
+        aria-pressed={units === "imperial"}
+      >
+        °F
+      </button>
+    </div>
+  );
+}
+
+function TopBar({ place, onSearch, onLocate, query, setQuery, units, setUnits, locating }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="flex items-center gap-2 px-5 pt-5 pb-2">
-      <button
-        onClick={onLocate}
-        title="Use my location"
-        className="p-2 rounded-full glass hover:bg-white/20 transition"
-      >
-        <Icon name="location" className="w-5 h-5" />
-      </button>
-      <div className="flex-1 text-center">
-        <div className="text-sm uppercase tracking-[0.2em] opacity-80">{place?.country || ""}</div>
-        <div className="text-xl font-semibold leading-tight">{place?.name || "—"}</div>
+    <header className="px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-3">
+      <div className="max-w-6xl mx-auto flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onLocate}
+          title="Use my location"
+          aria-label="Use my location"
+          disabled={locating}
+          className="icon-btn"
+        >
+          <Icon name="location" className="w-5 h-5" />
+        </button>
+
+        <div className="min-w-0 flex-1 text-center sm:text-left">
+          <div className="text-xs sm:text-sm uppercase tracking-[0.2em] opacity-75 truncate">{place?.country || " "}</div>
+          <div className="text-xl sm:text-2xl font-semibold leading-tight truncate">{place?.name || "—"}</div>
+        </div>
+
+        <div className="hidden sm:block">
+          <UnitToggle units={units} setUnits={setUnits} />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => { if (open) setQuery(""); setOpen(o => !o); }}
+          title="Search city"
+          aria-label="Search city"
+          className="icon-btn"
+          aria-expanded={open}
+        >
+          <Icon name="search" className="w-5 h-5" />
+        </button>
       </div>
-      <button
-        onClick={() => { if (open) setQuery(""); setOpen(o => !o); }}
-        title="Search city"
-        className="p-2 rounded-full glass hover:bg-white/20 transition"
-      >
-        <Icon name="search" className="w-5 h-5" />
-      </button>
 
       {open && (
-        <div className="absolute left-0 right-0 top-20 px-5 z-20">
+        <div className="absolute left-0 right-0 top-20 px-4 sm:px-6 lg:px-8 z-20">
           <form
             onSubmit={(e) => { e.preventDefault(); onSearch(query); setOpen(false); }}
-            className="glass-strong rounded-2xl p-2 flex items-center gap-2"
+            className="glass-strong search-panel mx-auto max-w-2xl p-2 flex items-center gap-2"
           >
             <Icon name="search" className="w-5 h-5 ml-2 opacity-80" />
             <input
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search a city…"
-              className="flex-1 bg-transparent outline-none placeholder-white/60 px-1 py-2"
+              placeholder="Search a city"
+              className="min-h-11 flex-1 bg-transparent outline-none placeholder-white/60 px-1"
             />
-            <button className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-sm">Go</button>
+            <button type="submit" className="min-h-11 px-4 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-medium">Go</button>
           </form>
         </div>
       )}
-    </div>
+    </header>
   );
 }
 
 function CurrentSection({ data, units, onClearSelection }) {
   if (!data) return null;
-  const { current, daily, timezone } = data;
+  const { current, daily } = data;
   const info = wxInfo(current.weather_code);
-  const hi = round(convertTemp(daily.temperature_2m_max[0], units));
-  const lo = round(convertTemp(daily.temperature_2m_min[0], units));
+  const dayIdx = current.__dayIdx ?? dayIndexForTime(daily, current.time);
+  const hi = round(convertTemp(daily.temperature_2m_max[dayIdx], units));
+  const lo = round(convertTemp(daily.temperature_2m_min[dayIdx], units));
   const isPreview = !!current.__selected;
-  const previewLabel = isPreview
-    ? new Date(current.time).toLocaleString("en-US", { weekday: "short", hour: "numeric", hour12: true, timeZone: timezone })
-    : null;
+  const previewLabel = isPreview ? fmtPreviewTime(current.time) : null;
   return (
-    <div className="px-6 pt-2 pb-4 text-center fade-in">
+    <section className="px-4 sm:px-6 lg:px-0 pt-2 pb-4 text-center lg:text-left fade-in">
       {isPreview && (
         <button
+          type="button"
           onClick={onClearSelection}
-          className="inline-flex items-center gap-1.5 glass rounded-full px-3 py-1 text-xs mb-2 hover:bg-white/15 transition"
+          className="inline-flex items-center gap-1.5 glass rounded-full min-h-9 px-3 text-xs mb-3 hover:bg-white/15 transition"
         >
           <span className="opacity-90">Previewing {previewLabel}</span>
           <span className="opacity-70">×</span>
         </button>
       )}
-      <Icon name={info.icon} className="w-16 h-16 mx-auto opacity-95" />
-      <div className="text-[7rem] leading-none font-extralight num mt-2">
+      <Icon name={info.icon} className="w-14 h-14 sm:w-16 sm:h-16 mx-auto lg:mx-0 opacity-95" />
+      <div className="hero-temp leading-none font-extralight num mt-2">
         {round(convertTemp(current.temperature_2m, units))}°
       </div>
       <div className="text-lg opacity-95">{info.label}</div>
       <div className="text-sm opacity-80 mt-1 num">
         H: {hi}°  ·  L: {lo}°  ·  Feels {round(convertTemp(current.apparent_temperature, units))}°
       </div>
-    </div>
+    </section>
   );
 }
 
 function StatCard({ icon, label, value, sub }) {
   return (
-    <div className="glass rounded-2xl p-3 flex flex-col items-center text-center min-w-0">
-      <div className="flex items-center gap-1.5 opacity-80 text-xs uppercase tracking-wider">
+    <div className="glass stat-card flex flex-col items-center lg:items-start text-center lg:text-left min-w-0">
+      <div className="flex items-center gap-1.5 opacity-80 text-[11px] sm:text-xs uppercase tracking-wider">
         <Icon name={icon} className="w-4 h-4" />
         <span>{label}</span>
       </div>
-      <div className="text-2xl font-medium num mt-1 truncate">{value}</div>
+      <div className="text-xl sm:text-2xl font-medium num mt-1 truncate max-w-full">{value}</div>
       {sub && <div className="text-xs opacity-75 mt-0.5">{sub}</div>}
     </div>
   );
@@ -386,7 +456,7 @@ function StatGrid({ data, units }) {
     uv < 11 ? "Very High" : "Extreme";
   const windUnit = units === "imperial" ? "mph" : "km/h";
   return (
-    <div className="px-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div className="px-4 sm:px-6 lg:px-0 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3">
       <StatCard icon="feels" label="Feels Like" value={`${round(convertTemp(c.apparent_temperature, units))}°`} />
       <StatCard icon="drop"  label="Humidity"   value={`${round(c.relative_humidity_2m)}%`} />
       <StatCard icon="wind"  label="Wind"       value={`${round(convertWind(c.wind_speed_10m, units))} ${windUnit}`} />
@@ -617,7 +687,7 @@ function TempChart({ points, units, secondary = null, height = 170, colWidth = 6
 
 function HourlyStrip({ data, units, selectedIdx, onSelect }) {
   if (!data) return null;
-  const { hourly, current, timezone } = data;
+  const { hourly, current } = data;
   // current.time may be minute-aligned ("…T12:55") while hourly.time is hour-aligned,
   // so match on the "YYYY-MM-DDTHH" prefix.
   const hourPrefix = (current.time || "").slice(0, 13);
@@ -644,7 +714,7 @@ function HourlyStrip({ data, units, selectedIdx, onSelect }) {
     }
     return {
       temp: convertTemp(temps[i], units),
-      label: i === 0 ? "Now" : fmtHour(t, timezone),
+      label: i === 0 ? "Now" : fmtHour(t),
       sublabel,
       sublabelColor,
       icon: info.icon,
@@ -653,12 +723,12 @@ function HourlyStrip({ data, units, selectedIdx, onSelect }) {
   });
 
   return (
-    <div className="px-5 mt-4">
-      <div className="text-xs uppercase tracking-[0.2em] opacity-75 mb-2 px-1">
+    <section className="forecast-section">
+      <div className="section-title">
         Hourly Forecast
-        <span className="ml-2 normal-case tracking-normal opacity-60">· tap to preview</span>
+        <span className="ml-2 normal-case tracking-normal opacity-60">tap to preview</span>
       </div>
-      <div className="glass rounded-2xl py-2 overflow-x-auto no-scrollbar">
+      <div className="glass chart-shell overflow-x-auto no-scrollbar">
         <TempChart
           points={points}
           units={units}
@@ -668,13 +738,13 @@ function HourlyStrip({ data, units, selectedIdx, onSelect }) {
           onPointClick={onSelect}
         />
       </div>
-    </div>
+    </section>
   );
 }
 
 function DetailRow({ icon, label, value, sub }) {
   return (
-    <div className="glass rounded-xl px-3 py-2.5 flex items-center gap-3">
+    <div className="glass detail-row flex items-center gap-3">
       <div className="opacity-80"><Icon name={icon} className="w-5 h-5" /></div>
       <div className="flex-1 min-w-0">
         <div className="text-[10px] uppercase tracking-wider opacity-70">{label}</div>
@@ -687,11 +757,11 @@ function DetailRow({ icon, label, value, sub }) {
 
 function DailyDetail({ data, units, idx }) {
   if (!data || idx == null) return null;
-  const { daily, timezone } = data;
+  const { daily } = data;
   const info = wxInfo(daily.weather_code[idx]);
-  const date = new Date(daily.time[idx] + "T12:00:00");
+  const date = localAsUtcDate(daily.time[idx] + "T12:00:00");
   const dateStr = date.toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric", timeZone: timezone,
+    weekday: "long", month: "long", day: "numeric", timeZone: "UTC",
   });
   const hi = round(convertTemp(daily.temperature_2m_max[idx], units));
   const lo = round(convertTemp(daily.temperature_2m_min[idx], units));
@@ -717,7 +787,7 @@ function DailyDetail({ data, units, idx }) {
   // Daylight length, derived from sunrise/sunset
   let daylight = "—";
   if (sunrise && sunset) {
-    const ms = new Date(sunset) - new Date(sunrise);
+    const ms = localAsUtcDate(sunset) - localAsUtcDate(sunrise);
     const h = Math.floor(ms / 3.6e6);
     const m = Math.floor((ms - h * 3.6e6) / 6e4);
     daylight = `${h}h ${m}m`;
@@ -774,13 +844,13 @@ function DailyDetail({ data, units, idx }) {
           <DetailRow
             icon="sun"
             label="Sunrise"
-            value={fmtTime(sunrise, timezone)}
+            value={fmtTime(sunrise)}
             sub={`Daylight ${daylight}`}
           />
           <DetailRow
             icon="sun"
             label="Sunset"
-            value={fmtTime(sunset, timezone)}
+            value={fmtTime(sunset)}
             sub={null}
           />
         </div>
@@ -791,13 +861,13 @@ function DailyDetail({ data, units, idx }) {
 
 function DailyList({ data, units, selectedIdx, onSelect }) {
   if (!data) return null;
-  const { daily, timezone } = data;
+  const { daily } = data;
 
   // Two lines: highs (primary) and lows (secondary). Today is the default
   // highlight, but a selected day overrides it via TempChart's selectedIdx.
   const highs = daily.time.map((d, i) => ({
     temp: convertTemp(daily.temperature_2m_max[i], units),
-    label: fmtDay(d, timezone, i),
+    label: fmtDay(d, i),
     icon: wxInfo(daily.weather_code[i]).icon,
     highlight: i === 0,
     sublabel: ((daily.precipitation_probability_max || [])[i] >= 30)
@@ -811,12 +881,12 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
   }));
 
   return (
-    <div className="px-5 mt-4 mb-6">
-      <div className="text-xs uppercase tracking-[0.2em] opacity-75 mb-2 px-1">
+    <section className="forecast-section mb-6">
+      <div className="section-title">
         8-Day Forecast
-        <span className="ml-2 normal-case tracking-normal opacity-60">· tap a day for details</span>
+        <span className="ml-2 normal-case tracking-normal opacity-60">tap a day for details</span>
       </div>
-      <div className="glass rounded-2xl py-2 overflow-x-auto no-scrollbar">
+      <div className="glass chart-shell overflow-x-auto no-scrollbar">
         <TempChart
           points={highs}
           secondary={lows}
@@ -831,7 +901,7 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
       </div>
 
       <DailyDetail data={data} units={units} idx={selectedIdx ?? 0} />
-    </div>
+    </section>
   );
 }
 
@@ -843,11 +913,13 @@ function App() {
   const [place, setPlace]       = useState({ name: "Longueuil, Quebec", country: "CA", lat: 45.5312, lon: -73.5183 });
   const [data,  setData]        = useState(null);
   const [loading, setLoading]   = useState(true);
+  const [locating, setLocating] = useState(false);
   const [error, setError]       = useState(null);
   const [query, setQuery]       = useState("");
   const [fetchedAt, setFetchedAt]             = useState(null);
   const [selectedHourIdx, setSelectedHourIdx] = useState(null); // null = "Now"
   const [selectedDayIdx,  setSelectedDayIdx]  = useState(0);    // 0 = Today
+  const locateRequestRef = useRef(0);
   const [units, setUnits]       = useState(() => {
     try { return localStorage.getItem("cleanweather.units") || "metric"; }
     catch { return "metric"; }
@@ -886,6 +958,8 @@ function App() {
     if (selectedHourIdx == null) return data.current;
     const abs = nowAbsIdx + selectedHourIdx;
     const h = data.hourly;
+    if (abs < 0 || abs >= h.time.length) return data.current;
+    const dayIdx = dayIndexForTime(data.daily, h.time[abs]);
     return {
       time: h.time[abs],
       temperature_2m: h.temperature_2m[abs],
@@ -895,6 +969,7 @@ function App() {
       wind_speed_10m: h.wind_speed_10m?.[abs] ?? data.current.wind_speed_10m,
       uv_index: h.uv_index?.[abs] ?? null,
       is_day: h.is_day?.[abs] ?? data.current.is_day,
+      __dayIdx: dayIdx,
       __selected: true,
     };
   }, [data, selectedHourIdx, nowAbsIdx]);
@@ -908,6 +983,9 @@ function App() {
   const handleSearch = async (q) => {
     if (!q?.trim()) return;
     try {
+      locateRequestRef.current += 1;
+      setLocating(false);
+      setError(null);
       const results = await geocodeCity(q);
       if (!results.length) { setError(`No matches for "${q}"`); return; }
       const r = results[0];
@@ -924,14 +1002,32 @@ function App() {
 
   const handleLocate = () => {
     if (!navigator.geolocation) { setError("Geolocation not available"); return; }
+    const requestId = locateRequestRef.current + 1;
+    locateRequestRef.current = requestId;
+    setLocating(true);
+    setError(null);
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const { latitude, longitude } = pos.coords;
       setPlace({ name: "Current location", country: "", lat: latitude, lon: longitude });
       try {
         const geo = await reverseGeocode(latitude, longitude);
-        if (geo) setPlace(prev => ({ ...prev, name: geo.name, country: geo.country }));
+        if (geo && locateRequestRef.current === requestId) {
+          setPlace(prev => (
+            prev.lat === latitude && prev.lon === longitude
+              ? { ...prev, name: geo.name, country: geo.country }
+              : prev
+          ));
+        }
       } catch {}
-    }, (err) => setError(err.message), { timeout: 8000 });
+      finally {
+        if (locateRequestRef.current === requestId) setLocating(false);
+      }
+    }, (err) => {
+      if (locateRequestRef.current === requestId) {
+        setError(err.message);
+        setLocating(false);
+      }
+    }, { timeout: 8000 });
   };
 
   // Gradient (thresholds calibrated in °F)
@@ -950,17 +1046,20 @@ function App() {
 
   return (
     <div className="min-h-screen bg-anim relative" style={bgStyle}>
-      <div className="max-w-2xl mx-auto pb-10 relative">
+      <div className="pb-8 sm:pb-12 relative">
         <TopBar
           place={place}
           query={query}
           setQuery={setQuery}
           onSearch={handleSearch}
           onLocate={handleLocate}
+          units={units}
+          setUnits={setUnits}
+          locating={locating}
         />
 
         {error && (
-          <div className="mx-5 mt-2 glass rounded-xl px-4 py-2 text-sm">
+          <div className="mx-4 sm:mx-6 lg:mx-auto lg:max-w-6xl mt-2 glass rounded-xl px-4 py-2 text-sm">
             {error}
           </div>
         )}
@@ -971,44 +1070,36 @@ function App() {
           </div>
         ) : data ? (
           <>
-            <CurrentSection data={viewData} units={units} onClearSelection={() => setSelectedHourIdx(null)} />
-            <StatGrid data={viewData} units={units} />
-            <HourlyStrip
-              data={data}
-              units={units}
-              selectedIdx={selectedHourIdx}
-              onSelect={(i) => setSelectedHourIdx(prev => prev === i ? null : i)}
-            />
-            <DailyList
-              data={data}
-              units={units}
-              selectedIdx={selectedDayIdx}
-              onSelect={(i) => setSelectedDayIdx(i)}
-            />
-
-            {/* Unit toggle */}
-            <div className="flex justify-center mt-6 px-5">
-              <div className="glass rounded-full p-1 flex items-center text-sm">
-                <button
-                  onClick={() => setUnits("metric")}
-                  className={`px-4 py-1.5 rounded-full transition ${
-                    units === "metric" ? "bg-white/25 font-medium" : "opacity-75 hover:opacity-100"
-                  }`}
-                >
-                  °C
-                </button>
-                <button
-                  onClick={() => setUnits("imperial")}
-                  className={`px-4 py-1.5 rounded-full transition ${
-                    units === "imperial" ? "bg-white/25 font-medium" : "opacity-75 hover:opacity-100"
-                  }`}
-                >
-                  °F
-                </button>
+            <main className="app-shell">
+              <div className="lg:sticky lg:top-5 lg:self-start">
+                <CurrentSection data={viewData} units={units} onClearSelection={() => setSelectedHourIdx(null)} />
+                <div className="sm:hidden flex justify-center px-4 mb-4">
+                  <UnitToggle units={units} setUnits={setUnits} />
+                </div>
+                <StatGrid data={viewData} units={units} />
+                {loading && (
+                  <div className="mx-4 sm:mx-6 lg:mx-0 mt-3 text-xs opacity-70 text-center lg:text-left">
+                    Updating forecast...
+                  </div>
+                )}
               </div>
-            </div>
+              <div className="min-w-0">
+                <HourlyStrip
+                  data={data}
+                  units={units}
+                  selectedIdx={selectedHourIdx}
+                  onSelect={(i) => setSelectedHourIdx(prev => prev === i ? null : i)}
+                />
+                <DailyList
+                  data={data}
+                  units={units}
+                  selectedIdx={selectedDayIdx}
+                  onSelect={(i) => setSelectedDayIdx(i)}
+                />
+              </div>
+            </main>
 
-            <div className="text-center text-[11px] opacity-60 px-5 mt-3">
+            <div className="text-center text-[11px] opacity-60 px-5 mt-4">
               Data by Open-Meteo · Refreshed {fetchedAt ? fetchedAt.toLocaleTimeString() : "…"}
             </div>
           </>
