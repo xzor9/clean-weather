@@ -119,6 +119,11 @@ function wxInfo(code) {
   return WX[code] || { label: "—", icon: "cloud", group: "cloud" };
 }
 
+function weatherIcon(code, isDay = true) {
+  const info = wxInfo(code);
+  return !isDay && info.icon === "sun" ? "moon" : info.icon;
+}
+
 // Build a gradient based on temperature and condition group (and day/night).
 // Daytime palettes are weather-toned; night palettes stay dark.
 function gradientFor(temp, group, isDay) {
@@ -159,6 +164,12 @@ function Icon({ name, className = "w-8 h-8" }) {
         <svg viewBox="0 0 24 24" className={className} {...stroke}>
           <circle cx="12" cy="12" r="4" />
           <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+        </svg>
+      );
+    case "moon":
+      return (
+        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+          <path d="M20 14.5A7.7 7.7 0 0 1 9.5 4 8 8 0 1 0 20 14.5z" />
         </svg>
       );
     case "partly":
@@ -486,7 +497,7 @@ function CurrentSection({ data, units, onClearSelection }) {
           <span className="opacity-70">×</span>
         </button>
       )}
-      <Icon name={info.icon} className="w-14 h-14 sm:w-16 sm:h-16 mx-auto lg:mx-0 opacity-95" />
+      <Icon name={weatherIcon(current.weather_code, !!current.is_day)} className="w-14 h-14 sm:w-16 sm:h-16 mx-auto lg:mx-0 opacity-95" />
       <div className="hero-temp leading-none font-extralight num mt-2">
         {round(convertTemp(current.temperature_2m, units))}°
       </div>
@@ -764,6 +775,7 @@ function HourlyStrip({ data, units, selectedIdx, onSelect }) {
   const times  = slice(hourly.time);
   const temps  = slice(hourly.temperature_2m);
   const codes  = slice(hourly.weather_code);
+  const isDay  = slice(hourly.is_day || []);
   const pop    = slice(hourly.precipitation_probability || []);
   const precip = slice(hourly.precipitation || []);
 
@@ -784,7 +796,7 @@ function HourlyStrip({ data, units, selectedIdx, onSelect }) {
       label: i === 0 ? "Now" : fmtHour(t),
       sublabel,
       sublabelColor,
-      icon: info.icon,
+      icon: weatherIcon(codes[i], isDay[i] ?? 1),
       highlight: i === 0,
     };
   });
