@@ -1207,7 +1207,13 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
 --------------------------------------------------------------------------- */
 
 function App() {
-  const [place, setPlace]       = useState({ name: "Longueuil, Quebec", country: "CA", lat: 45.5312, lon: -73.5183 });
+  const [place, setPlace] = useState(() => {
+    try {
+      const saved = localStorage.getItem("cleanweather.place");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { name: "Longueuil, Quebec", country: "CA", lat: 45.5312, lon: -73.5183 };
+  });
   const [data,  setData]        = useState(null);
   const [loading, setLoading]   = useState(true);
   const [locating, setLocating] = useState(false);
@@ -1233,7 +1239,10 @@ function App() {
   // so it can't consume it via useT()).
   const tr_ = (key, ...args) => tr(lang, key, ...args);
 
-  // Persist unit choice
+  // Persist preferences
+  useEffect(() => {
+    try { localStorage.setItem("cleanweather.place", JSON.stringify(place)); } catch {}
+  }, [place]);
   useEffect(() => {
     try { localStorage.setItem("cleanweather.units", units); } catch {}
   }, [units]);
