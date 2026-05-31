@@ -5,7 +5,7 @@
    per-day detail panel.
 --------------------------------------------------------------------------- */
 
-const { useState, useEffect, useMemo, useRef } = React;
+const { useState, useEffect, useMemo, useRef, useContext, createContext } = React;
 
 /* ---------------------------------------------------------------------------
    Open-Meteo helpers
@@ -80,6 +80,119 @@ function convertWind(kmh, units) { return units === "imperial" ? kmh * 0.621371 
 function convertPrecip(mm, units){ return units === "imperial" ? mm * 0.0393701 : mm; }
 
 /* ---------------------------------------------------------------------------
+   Internationalization (English / French)
+   - STRINGS holds static UI copy; values may be plain strings or functions.
+   - LangContext carries the active language; useT() returns a `t(key, …args)`
+     lookup whose `.lang` exposes the current language for the helpers below.
+   - Dynamic content (weather labels, UV, allergies, compass, dates) is handled
+     by the lang-aware helper functions, since those map data → text.
+--------------------------------------------------------------------------- */
+
+const STRINGS = {
+  en: {
+    tempUnits: "Temperature units",
+    language: "Language",
+    useMyLocation: "Use my location",
+    searchCity: "Search city",
+    searchPlaceholder: "Search a city",
+    go: "Go",
+    previewing: "Previewing",
+    hiShort: "H",
+    loShort: "L",
+    feels: "Feels",
+    feelsLike: "Feels Like",
+    humidity: "Humidity",
+    wind: "Wind",
+    uvIndex: "UV Index",
+    hourlyForecast: "Hourly Forecast",
+    tapToPreview: "tap to preview",
+    now: "Now",
+    eightDayForecast: "8-Day Forecast",
+    tapDayForDetails: "tap a day for details",
+    today: "Today",
+    todayShort: "Today",
+    forecast: "Forecast",
+    allergies: "Allergies",
+    precipitation: "Precipitation",
+    expected: "expected",
+    gusts: "Gusts",
+    from: "from",
+    maxUv: "Max UV",
+    sunrise: "Sunrise",
+    sunset: "Sunset",
+    daylight: "Daylight",
+    low: "Low",
+    loadingForecast: "Loading forecast…",
+    updatingForecast: "Updating forecast…",
+    noMatches: (q) => `No matches for "${q}"`,
+    geolocationUnavailable: "Geolocation not available",
+    currentLocation: "Current location",
+    dataCredit: "Data by Open-Meteo · Pollen by CAMS · Refreshed",
+  },
+  fr: {
+    tempUnits: "Unités de température",
+    language: "Langue",
+    useMyLocation: "Utiliser ma position",
+    searchCity: "Rechercher une ville",
+    searchPlaceholder: "Rechercher une ville",
+    go: "OK",
+    previewing: "Aperçu",
+    hiShort: "Max",
+    loShort: "Min",
+    feels: "Ressenti",
+    feelsLike: "Ressenti",
+    humidity: "Humidité",
+    wind: "Vent",
+    uvIndex: "Indice UV",
+    hourlyForecast: "Prévisions horaires",
+    tapToPreview: "touchez pour un aperçu",
+    now: "Maint.",
+    eightDayForecast: "Prévisions sur 8 jours",
+    tapDayForDetails: "touchez un jour pour les détails",
+    today: "Aujourd'hui",
+    todayShort: "Auj.",
+    forecast: "Prévision",
+    allergies: "Allergies",
+    precipitation: "Précipitations",
+    expected: "prévus",
+    gusts: "Rafales",
+    from: "de",
+    maxUv: "UV max",
+    sunrise: "Lever",
+    sunset: "Coucher",
+    daylight: "Jour",
+    low: "Min",
+    loadingForecast: "Chargement des prévisions…",
+    updatingForecast: "Mise à jour des prévisions…",
+    noMatches: (q) => `Aucun résultat pour « ${q} »`,
+    geolocationUnavailable: "Géolocalisation non disponible",
+    currentLocation: "Position actuelle",
+    dataCredit: "Données par Open-Meteo · Pollen par CAMS · Actualisé",
+  },
+};
+
+const LangContext = createContext("en");
+
+// Resolve a string key for a given language (functions receive args).
+function tr(lang, key, ...args) {
+  const dict = STRINGS[lang] || STRINGS.en;
+  const v = dict[key] ?? STRINGS.en[key] ?? key;
+  return typeof v === "function" ? v(...args) : v;
+}
+
+// Hook for components rendered inside <LangContext.Provider>.
+function useT() {
+  const lang = useContext(LangContext);
+  const t = (key, ...args) => tr(lang, key, ...args);
+  t.lang = lang;
+  return t;
+}
+
+function localeFor(lang) {
+  return lang === "fr" ? "fr-FR" : "en-US";
+}
+
+/* ---------------------------------------------------------------------------
    Weather code → label, icon, gradient
 --------------------------------------------------------------------------- */
 
@@ -117,6 +230,45 @@ const WX = {
 
 function wxInfo(code) {
   return WX[code] || { label: "—", icon: "cloud", group: "cloud" };
+}
+
+// French weather labels, keyed by the English label (codes share labels).
+const WX_LABEL_FR = {
+  "Clear": "Dégagé",
+  "Mainly clear": "Plutôt dégagé",
+  "Partly cloudy": "Partiellement nuageux",
+  "Overcast": "Couvert",
+  "Fog": "Brouillard",
+  "Rime fog": "Brouillard givrant",
+  "Light drizzle": "Bruine légère",
+  "Drizzle": "Bruine",
+  "Heavy drizzle": "Bruine forte",
+  "Freezing drizzle": "Bruine verglaçante",
+  "Light rain": "Pluie légère",
+  "Rain": "Pluie",
+  "Heavy rain": "Pluie forte",
+  "Freezing rain": "Pluie verglaçante",
+  "Light snow": "Neige légère",
+  "Snow": "Neige",
+  "Heavy snow": "Neige forte",
+  "Snow grains": "Grésil",
+  "Rain showers": "Averses",
+  "Heavy showers": "Averses fortes",
+  "Snow showers": "Averses de neige",
+  "Thunderstorm": "Orage",
+};
+
+function wxLabel(code, lang) {
+  const info = wxInfo(code);
+  return lang === "fr" ? (WX_LABEL_FR[info.label] || info.label) : info.label;
+}
+
+// UV index → descriptive level, localized.
+function uvLabel(uv, lang) {
+  if (uv == null) return "—";
+  const en = uv < 3 ? "Low" : uv < 6 ? "Moderate" : uv < 8 ? "High" : uv < 11 ? "Very High" : "Extreme";
+  if (lang !== "fr") return en;
+  return { "Low": "Faible", "Moderate": "Modéré", "High": "Élevé", "Very High": "Très élevé", "Extreme": "Extrême" }[en];
 }
 
 function weatherIcon(code, isDay = true) {
@@ -296,30 +448,32 @@ function localAsUtcDate(iso) {
   return p ? new Date(Date.UTC(p.y, p.m - 1, p.d, p.hh, p.mm)) : null;
 }
 
-function fmtHour(iso) {
+function fmtHour(iso, lang) {
   const p = parseLocalDateTime(iso);
   if (!p) return "—";
+  if (lang === "fr") return `${p.hh} h`; // French uses 24-hour time
   const h = p.hh % 12 || 12;
   return `${h} ${p.hh < 12 ? "AM" : "PM"}`;
 }
 
-function fmtPreviewTime(iso) {
+function fmtPreviewTime(iso, lang) {
   const d = localAsUtcDate(iso);
   return d
-    ? d.toLocaleString("en-US", { weekday: "short", hour: "numeric", hour12: true, timeZone: "UTC" })
+    ? d.toLocaleString(localeFor(lang), { weekday: "short", hour: "numeric", hour12: lang !== "fr", timeZone: "UTC" })
     : "—";
 }
 
-function fmtDay(iso, idx) {
-  if (idx === 0) return "Today";
+function fmtDay(iso, idx, lang) {
+  if (idx === 0) return tr(lang, "todayShort");
   const [y, m, d] = iso.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString(localeFor(lang), { weekday: "short", timeZone: "UTC" });
 }
 
-function fmtTime(iso) {
+function fmtTime(iso, lang) {
   if (!iso) return "—";
   const p = parseLocalDateTime(iso);
   if (!p) return "—";
+  if (lang === "fr") return `${p.hh}:${String(p.mm).padStart(2, "0")}`; // 24-hour
   const h = p.hh % 12 || 12;
   return `${h}:${String(p.mm).padStart(2, "0")} ${p.hh < 12 ? "AM" : "PM"}`;
 }
@@ -335,9 +489,12 @@ function fmtPrecip(mm, units) {
   return `${Math.round(mm)} mm`;
 }
 
-function compassDir(deg) {
+function compassDir(deg, lang) {
   if (deg == null) return "—";
-  const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+  // French swaps W (West) for O (Ouest).
+  const dirs = lang === "fr"
+    ? ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"]
+    : ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
   return dirs[Math.round(((deg % 360) / 22.5)) % 16];
 }
 
@@ -350,23 +507,24 @@ function dayIndexForTime(daily, iso) {
 }
 
 const POLLEN_TYPES = [
-  { key: "alder_pollen", label: "Alder" },
-  { key: "birch_pollen", label: "Birch" },
-  { key: "grass_pollen", label: "Grass" },
-  { key: "mugwort_pollen", label: "Mugwort" },
-  { key: "olive_pollen", label: "Olive" },
-  { key: "ragweed_pollen", label: "Ragweed" },
+  { key: "alder_pollen", label: "Alder", labelFr: "Aulne" },
+  { key: "birch_pollen", label: "Birch", labelFr: "Bouleau" },
+  { key: "grass_pollen", label: "Grass", labelFr: "Graminées" },
+  { key: "mugwort_pollen", label: "Mugwort", labelFr: "Armoise" },
+  { key: "olive_pollen", label: "Olive", labelFr: "Olivier" },
+  { key: "ragweed_pollen", label: "Ragweed", labelFr: "Ambroisie" },
 ];
 
-function allergyLevel(value) {
-  if (value == null) return { label: "Unavailable", sub: "No pollen data", value: "—" };
-  if (value < 1) return { label: "Low", sub: "Minimal pollen", value: "Low" };
-  if (value < 20) return { label: "Moderate", sub: `${Math.round(value)} grains/m³`, value: "Mod" };
-  if (value < 80) return { label: "High", sub: `${Math.round(value)} grains/m³`, value: "High" };
-  return { label: "Very High", sub: `${Math.round(value)} grains/m³`, value: "Very" };
+function allergyLevel(value, lang) {
+  const fr = lang === "fr";
+  if (value == null) return { label: fr ? "Indisponible" : "Unavailable", sub: fr ? "Aucune donnée pollen" : "No pollen data", value: "—" };
+  if (value < 1) return { label: fr ? "Faible" : "Low", sub: fr ? "Pollen minimal" : "Minimal pollen", value: fr ? "Faible" : "Low" };
+  if (value < 20) return { label: fr ? "Modéré" : "Moderate", sub: `${Math.round(value)} grains/m³`, value: fr ? "Mod" : "Mod" };
+  if (value < 80) return { label: fr ? "Élevé" : "High", sub: `${Math.round(value)} grains/m³`, value: fr ? "Élevé" : "High" };
+  return { label: fr ? "Très élevé" : "Very High", sub: `${Math.round(value)} grains/m³`, value: fr ? "Très" : "Very" };
 }
 
-function allergySummary(allergies, day) {
+function allergySummary(allergies, day, lang) {
   const hourly = allergies?.hourly;
   if (!hourly?.time?.length || !day) {
     return null;
@@ -383,10 +541,11 @@ function allergySummary(allergies, day) {
   }
 
   if (!top) return null;
-  const level = allergyLevel(top.max);
+  const level = allergyLevel(top.max, lang);
+  const typeLabel = lang === "fr" ? top.labelFr : top.label;
   return {
     value: level.value,
-    sub: `${level.label} · ${top.label} ${level.sub.toLowerCase()}`,
+    sub: `${level.label} · ${typeLabel} ${level.sub.toLowerCase()}`,
   };
 }
 
@@ -394,9 +553,38 @@ function allergySummary(allergies, day) {
    UI Components
 --------------------------------------------------------------------------- */
 
-function UnitToggle({ units, setUnits }) {
+function LanguageToggle({ lang, setLang }) {
+  const t = useT();
   return (
-    <div className="glass rounded-full p-1 flex items-center text-sm shrink-0" role="group" aria-label="Temperature units">
+    <div className="glass rounded-full p-1 flex items-center text-sm shrink-0" role="group" aria-label={t("language")}>
+      <button
+        type="button"
+        onClick={() => setLang("en")}
+        className={`min-h-10 px-4 rounded-full transition ${
+          lang === "en" ? "bg-white/25 font-medium" : "opacity-75 hover:opacity-100"
+        }`}
+        aria-pressed={lang === "en"}
+      >
+        EN
+      </button>
+      <button
+        type="button"
+        onClick={() => setLang("fr")}
+        className={`min-h-10 px-4 rounded-full transition ${
+          lang === "fr" ? "bg-white/25 font-medium" : "opacity-75 hover:opacity-100"
+        }`}
+        aria-pressed={lang === "fr"}
+      >
+        FR
+      </button>
+    </div>
+  );
+}
+
+function UnitToggle({ units, setUnits }) {
+  const t = useT();
+  return (
+    <div className="glass rounded-full p-1 flex items-center text-sm shrink-0" role="group" aria-label={t("tempUnits")}>
       <button
         type="button"
         onClick={() => setUnits("metric")}
@@ -423,14 +611,15 @@ function UnitToggle({ units, setUnits }) {
 
 function TopBar({ place, onSearch, onLocate, query, setQuery, locating }) {
   const [open, setOpen] = useState(false);
+  const t = useT();
   return (
     <header className="px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-3">
       <div className="max-w-6xl mx-auto flex items-center gap-3">
         <button
           type="button"
           onClick={onLocate}
-          title="Use my location"
-          aria-label="Use my location"
+          title={t("useMyLocation")}
+          aria-label={t("useMyLocation")}
           disabled={locating}
           className="icon-btn"
         >
@@ -445,8 +634,8 @@ function TopBar({ place, onSearch, onLocate, query, setQuery, locating }) {
         <button
           type="button"
           onClick={() => { if (open) setQuery(""); setOpen(o => !o); }}
-          title="Search city"
-          aria-label="Search city"
+          title={t("searchCity")}
+          aria-label={t("searchCity")}
           className="icon-btn"
           aria-expanded={open}
         >
@@ -465,10 +654,10 @@ function TopBar({ place, onSearch, onLocate, query, setQuery, locating }) {
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search a city"
+              placeholder={t("searchPlaceholder")}
               className="min-h-11 flex-1 bg-transparent outline-none placeholder-white/60 px-1"
             />
-            <button type="submit" className="min-h-11 px-4 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-medium">Go</button>
+            <button type="submit" className="min-h-11 px-4 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-medium">{t("go")}</button>
           </form>
         </div>
       )}
@@ -477,14 +666,14 @@ function TopBar({ place, onSearch, onLocate, query, setQuery, locating }) {
 }
 
 function CurrentSection({ data, units, onClearSelection }) {
+  const t = useT();
   if (!data) return null;
   const { current, daily } = data;
-  const info = wxInfo(current.weather_code);
   const dayIdx = current.__dayIdx ?? dayIndexForTime(daily, current.time);
   const hi = round(convertTemp(daily.temperature_2m_max[dayIdx], units));
   const lo = round(convertTemp(daily.temperature_2m_min[dayIdx], units));
   const isPreview = !!current.__selected;
-  const previewLabel = isPreview ? fmtPreviewTime(current.time) : null;
+  const previewLabel = isPreview ? fmtPreviewTime(current.time, t.lang) : null;
   return (
     <section className="px-4 sm:px-6 lg:px-0 pt-2 pb-4 text-center lg:text-left fade-in">
       {isPreview && (
@@ -493,7 +682,7 @@ function CurrentSection({ data, units, onClearSelection }) {
           onClick={onClearSelection}
           className="inline-flex items-center gap-1.5 glass rounded-full min-h-9 px-3 text-xs mb-3 hover:bg-white/15 transition"
         >
-          <span className="opacity-90">Previewing {previewLabel}</span>
+          <span className="opacity-90">{t("previewing")} {previewLabel}</span>
           <span className="opacity-70">×</span>
         </button>
       )}
@@ -501,9 +690,9 @@ function CurrentSection({ data, units, onClearSelection }) {
       <div className="hero-temp leading-none font-extralight num mt-2">
         {round(convertTemp(current.temperature_2m, units))}°
       </div>
-      <div className="text-lg opacity-95">{info.label}</div>
+      <div className="text-lg opacity-95">{wxLabel(current.weather_code, t.lang)}</div>
       <div className="text-sm opacity-80 mt-1 num">
-        H: {hi}°  ·  L: {lo}°  ·  Feels {round(convertTemp(current.apparent_temperature, units))}°
+        {t("hiShort")}: {hi}°  ·  {t("loShort")}: {lo}°  ·  {t("feels")} {round(convertTemp(current.apparent_temperature, units))}°
       </div>
     </section>
   );
@@ -523,22 +712,17 @@ function StatCard({ icon, label, value, sub }) {
 }
 
 function StatGrid({ data, units }) {
+  const t = useT();
   if (!data) return null;
   const c = data.current;
   const uv = c.uv_index;
-  const uvLabel =
-    uv == null ? "—" :
-    uv < 3 ? "Low" :
-    uv < 6 ? "Moderate" :
-    uv < 8 ? "High" :
-    uv < 11 ? "Very High" : "Extreme";
   const windUnit = units === "imperial" ? "mph" : "km/h";
   return (
     <div className="px-4 sm:px-6 lg:px-0 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3">
-      <StatCard icon="feels" label="Feels Like" value={`${round(convertTemp(c.apparent_temperature, units))}°`} />
-      <StatCard icon="drop"  label="Humidity"   value={`${round(c.relative_humidity_2m)}%`} />
-      <StatCard icon="wind"  label="Wind"       value={`${round(convertWind(c.wind_speed_10m, units))} ${windUnit}`} />
-      <StatCard icon="uv"    label="UV Index"   value={uv != null ? round(uv) : "—"} sub={uvLabel} />
+      <StatCard icon="feels" label={t("feelsLike")} value={`${round(convertTemp(c.apparent_temperature, units))}°`} />
+      <StatCard icon="drop"  label={t("humidity")}  value={`${round(c.relative_humidity_2m)}%`} />
+      <StatCard icon="wind"  label={t("wind")}      value={`${round(convertWind(c.wind_speed_10m, units))} ${windUnit}`} />
+      <StatCard icon="uv"    label={t("uvIndex")}   value={uv != null ? round(uv) : "—"} sub={uvLabel(uv, t.lang)} />
     </div>
   );
 }
@@ -764,6 +948,8 @@ function TempChart({ points, units, secondary = null, height = 170, colWidth = 6
 }
 
 function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
+  const i18n = useT();
+  const lang = i18n.lang;
   const sectionRef = useRef(null);
   const chartRef = useRef(null);
 
@@ -816,7 +1002,7 @@ function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
     }
     return {
       temp: convertTemp(temps[i], units),
-      label: isToday && i === 0 ? "Now" : fmtHour(t),
+      label: isToday && i === 0 ? i18n("now") : fmtHour(t, lang),
       sublabel,
       sublabelColor,
       icon: weatherIcon(codes[i], isDay[i] ?? 1),
@@ -824,15 +1010,15 @@ function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
     };
   });
 
-  const dayLabel = !isToday ? fmtDay(daily.time[selectedDayIdx], selectedDayIdx) : null;
+  const dayLabel = !isToday ? fmtDay(daily.time[selectedDayIdx], selectedDayIdx, lang) : null;
 
   return (
     <section ref={sectionRef} className="forecast-section">
       <div className="section-title">
-        Hourly Forecast
+        {i18n("hourlyForecast")}
         {dayLabel
           ? <span className="ml-2 normal-case tracking-normal opacity-60">— {dayLabel}</span>
-          : <span className="ml-2 normal-case tracking-normal opacity-60">tap to preview</span>
+          : <span className="ml-2 normal-case tracking-normal opacity-60">{i18n("tapToPreview")}</span>
         }
       </div>
       <div ref={chartRef} className="glass chart-shell overflow-x-auto no-scrollbar">
@@ -863,11 +1049,12 @@ function DetailRow({ icon, label, value, sub }) {
 }
 
 function DailyDetail({ data, units, idx }) {
+  const t = useT();
   if (!data || idx == null) return null;
   const { daily } = data;
   const info = wxInfo(daily.weather_code[idx]);
   const date = localAsUtcDate(daily.time[idx] + "T12:00:00");
-  const dateStr = date.toLocaleDateString("en-US", {
+  const dateStr = date.toLocaleDateString(localeFor(t.lang), {
     weekday: "long", month: "long", day: "numeric", timeZone: "UTC",
   });
   const hi = round(convertTemp(daily.temperature_2m_max[idx], units));
@@ -883,14 +1070,7 @@ function DailyDetail({ data, units, idx }) {
   const sunrise = (daily.sunrise || [])[idx];
   const sunset  = (daily.sunset  || [])[idx];
   const windUnit = units === "imperial" ? "mph" : "km/h";
-  const allergy = allergySummary(data.allergies, daily.time[idx]);
-
-  const uvLabel =
-    uv == null ? "—" :
-    uv < 3 ? "Low" :
-    uv < 6 ? "Moderate" :
-    uv < 8 ? "High" :
-    uv < 11 ? "Very High" : "Extreme";
+  const allergy = allergySummary(data.allergies, daily.time[idx], t.lang);
 
   // Daylight length, derived from sunrise/sunset
   let daylight = "—";
@@ -906,9 +1086,9 @@ function DailyDetail({ data, units, idx }) {
       <div className="glass-strong rounded-2xl p-4">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div className="min-w-0">
-            <div className="text-xs uppercase tracking-[0.2em] opacity-70">{idx === 0 ? "Today" : "Forecast"}</div>
+            <div className="text-xs uppercase tracking-[0.2em] opacity-70">{idx === 0 ? t("today") : t("forecast")}</div>
             <div className="text-base font-medium truncate">{dateStr}</div>
-            <div className="text-sm opacity-90">{info.label}</div>
+            <div className="text-sm opacity-90">{wxLabel(daily.weather_code[idx], t.lang)}</div>
           </div>
           <div className="flex items-center gap-3">
             <Icon name={info.icon} className="w-10 h-10 opacity-95" />
@@ -923,50 +1103,50 @@ function DailyDetail({ data, units, idx }) {
           {allergy && (
             <DetailRow
               icon="allergy"
-              label="Allergies"
+              label={t("allergies")}
               value={allergy.value}
               sub={allergy.sub}
             />
           )}
           <DetailRow
             icon="feels"
-            label="Feels Like"
+            label={t("feelsLike")}
             value={feelsHi != null ? `${round(convertTemp(feelsHi, units))}°` : "—"}
-            sub={feelsLo != null ? `Low ${round(convertTemp(feelsLo, units))}°` : null}
+            sub={feelsLo != null ? `${t("low")} ${round(convertTemp(feelsLo, units))}°` : null}
           />
           <DetailRow
             icon="drop"
-            label="Precipitation"
+            label={t("precipitation")}
             value={pop != null ? `${pop}%` : "—"}
-            sub={precip != null ? `${fmtPrecip(precip, units)} expected` : null}
+            sub={precip != null ? `${fmtPrecip(precip, units)} ${t("expected")}` : null}
           />
           <DetailRow
             icon="wind"
-            label="Wind"
+            label={t("wind")}
             value={wind != null ? `${round(convertWind(wind, units))} ${windUnit}` : "—"}
             sub={
               [
-                gust != null ? `Gusts ${round(convertWind(gust, units))} ${windUnit}` : null,
-                windDir != null ? `from ${compassDir(windDir)}` : null,
+                gust != null ? `${t("gusts")} ${round(convertWind(gust, units))} ${windUnit}` : null,
+                windDir != null ? `${t("from")} ${compassDir(windDir, t.lang)}` : null,
               ].filter(Boolean).join(" · ") || null
             }
           />
           <DetailRow
             icon="uv"
-            label="Max UV"
+            label={t("maxUv")}
             value={uv != null ? `${round(uv)}` : "—"}
-            sub={uvLabel}
+            sub={uvLabel(uv, t.lang)}
           />
           <DetailRow
             icon="sun"
-            label="Sunrise"
-            value={fmtTime(sunrise)}
-            sub={`Daylight ${daylight}`}
+            label={t("sunrise")}
+            value={fmtTime(sunrise, t.lang)}
+            sub={`${t("daylight")} ${daylight}`}
           />
           <DetailRow
             icon="sun"
-            label="Sunset"
-            value={fmtTime(sunset)}
+            label={t("sunset")}
+            value={fmtTime(sunset, t.lang)}
             sub={null}
           />
         </div>
@@ -976,6 +1156,7 @@ function DailyDetail({ data, units, idx }) {
 }
 
 function DailyList({ data, units, selectedIdx, onSelect }) {
+  const t = useT();
   if (!data) return null;
   const { daily } = data;
 
@@ -983,7 +1164,7 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
   // highlight, but a selected day overrides it via TempChart's selectedIdx.
   const highs = daily.time.map((d, i) => ({
     temp: convertTemp(daily.temperature_2m_max[i], units),
-    label: fmtDay(d, i),
+    label: fmtDay(d, i, t.lang),
     icon: wxInfo(daily.weather_code[i]).icon,
     highlight: i === 0,
     sublabel: ((daily.precipitation_probability_max || [])[i] >= 30)
@@ -999,8 +1180,8 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
   return (
     <section className="forecast-section mb-6">
       <div className="section-title">
-        8-Day Forecast
-        <span className="ml-2 normal-case tracking-normal opacity-60">tap a day for details</span>
+        {t("eightDayForecast")}
+        <span className="ml-2 normal-case tracking-normal opacity-60">{t("tapDayForDetails")}</span>
       </div>
       <div className="glass chart-shell overflow-x-auto no-scrollbar">
         <TempChart
@@ -1040,11 +1221,28 @@ function App() {
     try { return localStorage.getItem("cleanweather.units") || "metric"; }
     catch { return "metric"; }
   });
+  const [lang, setLang]         = useState(() => {
+    try {
+      const saved = localStorage.getItem("cleanweather.lang");
+      if (saved) return saved;
+      return (navigator.language || "en").toLowerCase().startsWith("fr") ? "fr" : "en";
+    } catch { return "en"; }
+  });
+
+  // Local translator bound to App's own lang state (App provides the context,
+  // so it can't consume it via useT()).
+  const tr_ = (key, ...args) => tr(lang, key, ...args);
 
   // Persist unit choice
   useEffect(() => {
     try { localStorage.setItem("cleanweather.units", units); } catch {}
   }, [units]);
+
+  // Persist language choice and reflect it on <html lang>
+  useEffect(() => {
+    try { localStorage.setItem("cleanweather.lang", lang); } catch {}
+    document.documentElement.lang = lang;
+  }, [lang]);
 
   // Load forecast whenever place or units change. Reset selections too.
   useEffect(() => {
@@ -1108,7 +1306,7 @@ function App() {
       setLocating(false);
       setError(null);
       const results = await geocodeCity(q);
-      if (!results.length) { setError(`No matches for "${q}"`); return; }
+      if (!results.length) { setError(tr_("noMatches", q)); return; }
       const r = results[0];
       setPlace({
         name: r.name + (r.admin1 ? `, ${r.admin1}` : ""),
@@ -1122,14 +1320,14 @@ function App() {
   };
 
   const handleLocate = () => {
-    if (!navigator.geolocation) { setError("Geolocation not available"); return; }
+    if (!navigator.geolocation) { setError(tr_("geolocationUnavailable")); return; }
     const requestId = locateRequestRef.current + 1;
     locateRequestRef.current = requestId;
     setLocating(true);
     setError(null);
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const { latitude, longitude } = pos.coords;
-      setPlace({ name: "Current location", country: "", lat: latitude, lon: longitude });
+      setPlace({ name: tr_("currentLocation"), country: "", lat: latitude, lon: longitude });
       try {
         const geo = await reverseGeocode(latitude, longitude);
         if (geo && locateRequestRef.current === requestId) {
@@ -1166,6 +1364,7 @@ function App() {
   };
 
   return (
+    <LangContext.Provider value={lang}>
     <div className="min-h-screen bg-anim relative" style={bgStyle}>
       <div className="pb-8 sm:pb-12 relative">
         <TopBar
@@ -1185,7 +1384,7 @@ function App() {
 
         {loading && !data ? (
           <div className="flex items-center justify-center py-24 opacity-80">
-            Loading forecast…
+            {tr_("loadingForecast")}
           </div>
         ) : data ? (
           <>
@@ -1195,7 +1394,7 @@ function App() {
                 <StatGrid data={viewData} units={units} />
                 {loading && (
                   <div className="mx-4 sm:mx-6 lg:mx-0 mt-3 text-xs opacity-70 text-center lg:text-left">
-                    Updating forecast...
+                    {tr_("updatingForecast")}
                   </div>
                 )}
               </div>
@@ -1216,17 +1415,19 @@ function App() {
               </div>
             </main>
 
-            <div className="flex justify-center px-5 mt-4">
+            <div className="flex justify-center items-center gap-3 px-5 mt-4">
+              <LanguageToggle lang={lang} setLang={setLang} />
               <UnitToggle units={units} setUnits={setUnits} />
             </div>
 
             <div className="text-center text-[11px] opacity-60 px-5 mt-4">
-              Data by Open-Meteo · Pollen by CAMS · Refreshed {fetchedAt ? fetchedAt.toLocaleTimeString() : "…"}
+              {tr_("dataCredit")} {fetchedAt ? fetchedAt.toLocaleTimeString(localeFor(lang)) : "…"}
             </div>
           </>
         ) : null}
       </div>
     </div>
+    </LangContext.Provider>
   );
 }
 
