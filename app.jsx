@@ -765,11 +765,18 @@ function TempChart({ points, units, secondary = null, height = 170, colWidth = 6
 
 function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
   const sectionRef = useRef(null);
+  const chartRef = useRef(null);
 
   useEffect(() => {
     if (selectedDayIdx && sectionRef.current) {
       sectionRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
+  }, [selectedDayIdx]);
+
+  // Scroll the chart to 6 AM when a future day is selected, back to start for today.
+  useEffect(() => {
+    if (!chartRef.current) return;
+    chartRef.current.scrollLeft = selectedDayIdx ? 6 * 64 : 0;
   }, [selectedDayIdx]);
 
   if (!data) return null;
@@ -828,7 +835,7 @@ function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
           : <span className="ml-2 normal-case tracking-normal opacity-60">tap to preview</span>
         }
       </div>
-      <div className="glass chart-shell overflow-x-auto no-scrollbar">
+      <div ref={chartRef} className="glass chart-shell overflow-x-auto no-scrollbar">
         <TempChart
           points={points}
           units={units}
