@@ -764,6 +764,14 @@ function TempChart({ points, units, secondary = null, height = 170, colWidth = 6
 }
 
 function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
+  const sectionRef = useRef(null);
+
+  useEffect(() => {
+    if (selectedDayIdx && sectionRef.current) {
+      sectionRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [selectedDayIdx]);
+
   if (!data) return null;
   const { hourly, current, daily } = data;
   const isToday = !selectedDayIdx;
@@ -812,7 +820,7 @@ function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
   const dayLabel = !isToday ? fmtDay(daily.time[selectedDayIdx], selectedDayIdx) : null;
 
   return (
-    <section className="forecast-section">
+    <section ref={sectionRef} className="forecast-section">
       <div className="section-title">
         Hourly Forecast
         {dayLabel
