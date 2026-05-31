@@ -763,14 +763,23 @@ function TempChart({ points, units, secondary = null, height = 170, colWidth = 6
   );
 }
 
-function HourlyStrip({ data, units, selectedIdx, onSelect }) {
+function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
   if (!data) return null;
-  const { hourly, current } = data;
-  // current.time may be minute-aligned ("…T12:55") while hourly.time is hour-aligned,
-  // so match on the "YYYY-MM-DDTHH" prefix.
-  const hourPrefix = (current.time || "").slice(0, 13);
-  let startIdx = hourly.time.findIndex(t => t.startsWith(hourPrefix));
-  if (startIdx < 0) startIdx = 0;
+  const { hourly, current, daily } = data;
+  const isToday = !selectedDayIdx;
+
+  // For today start at the current hour; for a future day start at midnight of that day.
+  let startIdx;
+  if (isToday) {
+    const hourPrefix = (current.time || "").slice(0, 13);
+    startIdx = hourly.time.findIndex(t => t.startsWith(hourPrefix));
+    if (startIdx < 0) startIdx = 0;
+  } else {
+    const dayStr = daily.time[selectedDayIdx];
+    startIdx = hourly.time.findIndex(t => t.startsWith(dayStr));
+    if (startIdx < 0) startIdx = 0;
+  }
+
   const slice = (arr) => arr.slice(startIdx, startIdx + 24);
   const times  = slice(hourly.time);
   const temps  = slice(hourly.temperature_2m);
@@ -780,7 +789,6 @@ function HourlyStrip({ data, units, selectedIdx, onSelect }) {
   const precip = slice(hourly.precipitation || []);
 
   const points = times.map((t, i) => {
-    const info = wxInfo(codes[i]);
     const precipMm = precip[i];
     let sublabel = "";
     let sublabelColor = "rgba(255,255,255,0.6)";
@@ -793,19 +801,24 @@ function HourlyStrip({ data, units, selectedIdx, onSelect }) {
     }
     return {
       temp: convertTemp(temps[i], units),
-      label: i === 0 ? "Now" : fmtHour(t),
+      label: isToday && i === 0 ? "Now" : fmtHour(t),
       sublabel,
       sublabelColor,
       icon: weatherIcon(codes[i], isDay[i] ?? 1),
-      highlight: i === 0,
+      highlight: isToday && i === 0,
     };
   });
+
+  const dayLabel = !isToday ? fmtDay(daily.time[selectedDayIdx], selectedDayIdx) : null;
 
   return (
     <section className="forecast-section">
       <div className="section-title">
         Hourly Forecast
-        <span className="ml-2 normal-case tracking-normal opacity-60">tap to preview</span>
+        {dayLabel
+          ? <span className="ml-2 normal-case tracking-normal opacity-60">— {dayLabel}</span>
+          : <span className="ml-2 normal-case tracking-normal opacity-60">tap to preview</span>
+        }
       </div>
       <div className="glass chart-shell overflow-x-auto no-scrollbar">
         <TempChart
@@ -1032,19 +1045,24 @@ function App() {
     return () => { cancelled = true; };
   }, [place.lat, place.lon]);
 
-  // Find the index in hourly arrays that corresponds to "now" (absolute, not the slice).
-  const nowAbsIdx = useMemo(() => {
+  // Absolute start index for the hourly strip — "now" for today, midnight for future days.
+  const stripStartIdx = useMemo(() => {
     if (!data) return 0;
-    const prefix = (data.current.time || "").slice(0, 13);
-    const idx = data.hourly.time.findIndex(t => t.startsWith(prefix));
+    if (!selectedDayIdx) {
+      const prefix = (data.current.time || "").slice(0, 13);
+      const idx = data.hourly.time.findIndex(t => t.startsWith(prefix));
+      return idx < 0 ? 0 : idx;
+    }
+    const dayStr = data.daily.time[selectedDayIdx];
+    const idx = data.hourly.time.findIndex(t => t.startsWith(dayStr));
     return idx < 0 ? 0 : idx;
-  }, [data]);
+  }, [data, selectedDayIdx]);
 
   // Either the live current, or a synthetic snapshot at the selected hour.
   const displayCurrent = useMemo(() => {
     if (!data) return null;
     if (selectedHourIdx == null) return data.current;
-    const abs = nowAbsIdx + selectedHourIdx;
+    const abs = stripStartIdx + selectedHourIdx;
     const h = data.hourly;
     if (abs < 0 || abs >= h.time.length) return data.current;
     const dayIdx = dayIndexForTime(data.daily, h.time[abs]);
@@ -1060,7 +1078,7 @@ function App() {
       __dayIdx: dayIdx,
       __selected: true,
     };
-  }, [data, selectedHourIdx, nowAbsIdx]);
+  }, [data, selectedHourIdx, stripStartIdx]);
 
   // View-data swaps the current section's source.
   const viewData = useMemo(() => {
@@ -1172,12 +1190,13 @@ function App() {
                   units={units}
                   selectedIdx={selectedHourIdx}
                   onSelect={(i) => setSelectedHourIdx(prev => prev === i ? null : i)}
+                  selectedDayIdx={selectedDayIdx}
                 />
                 <DailyList
                   data={data}
                   units={units}
                   selectedIdx={selectedDayIdx}
-                  onSelect={(i) => setSelectedDayIdx(i)}
+                  onSelect={(i) => { setSelectedDayIdx(i); setSelectedHourIdx(null); }}
                 />
               </div>
             </main>
