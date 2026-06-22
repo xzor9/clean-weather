@@ -61,6 +61,36 @@ async function fetchAllergies(lat, lon) {
   return j?.hourly?.time ? j : null;
 }
 
+async function fetchCanadianAlerts(lat, lon) {
+  // GeoMet accepts a bounding box in longitude/latitude order. A small box
+  // around the selected point reliably intersects any active alert polygon.
+  const radius = 0.01;
+  const params = new URLSearchParams({
+    f: "json",
+    bbox: [lon - radius, lat - radius, lon + radius, lat + radius].join(","),
+    limit: 50,
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const r = await fetch(
+      `https://api.weather.gc.ca/collections/weather-alerts/items?${params}`,
+      { signal: controller.signal }
+    );
+    if (!r.ok) throw new Error("Alert fetch failed");
+    const j = await r.json();
+    const unique = new Map();
+    for (const feature of j.features || []) {
+      const p = feature.properties || {};
+      const key = p.id || p.feature_id || `${p.alert_code}-${p.publication_datetime}`;
+      if (!unique.has(key)) unique.set(key, feature);
+    }
+    return [...unique.values()];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function fetchWeatherBundle(lat, lon) {
   const [forecast, allergies] = await Promise.all([
     fetchForecast(lat, lon),
@@ -127,6 +157,9 @@ const STRINGS = {
     noMatches: (q) => `No matches for "${q}"`,
     geolocationUnavailable: "Geolocation not available",
     currentLocation: "Current location",
+    officialAlerts: "Official weather alerts",
+    issuedByEccc: "Environment and Climate Change Canada",
+    alertUntil: "Until",
     dataCredit: "Data by Open-Meteo · Pollen by CAMS · Refreshed",
   },
   fr: {
@@ -167,6 +200,9 @@ const STRINGS = {
     noMatches: (q) => `Aucun résultat pour « ${q} »`,
     geolocationUnavailable: "Géolocalisation non disponible",
     currentLocation: "Position actuelle",
+    officialAlerts: "Alertes météo officielles",
+    issuedByEccc: "Environnement et Changement climatique Canada",
+    alertUntil: "Jusqu'au",
     dataCredit: "Données par Open-Meteo · Pollen par CAMS · Actualisé",
   },
 };
@@ -662,6 +698,62 @@ function TopBar({ place, onSearch, onLocate, query, setQuery, locating }) {
         </div>
       )}
     </header>
+  );
+}
+
+const ALERT_RANK = { red: 3, orange: 2, yellow: 1 };
+
+function AlertBanner({ alerts }) {
+  const t = useT();
+  if (!alerts?.length) return null;
+  const sorted = [...alerts].sort((a, b) => {
+    const colourA = (a.properties?.risk_colour_en || "").toLowerCase();
+    const colourB = (b.properties?.risk_colour_en || "").toLowerCase();
+    return (ALERT_RANK[colourB] || 0) - (ALERT_RANK[colourA] || 0);
+  });
+
+  return (
+    <aside className="mx-4 sm:mx-6 lg:mx-auto lg:max-w-6xl mt-2 space-y-2 fade-in" aria-label={t("officialAlerts")}>
+      {sorted.map((feature, idx) => {
+        const p = feature.properties || {};
+        const colour = (p.risk_colour_en || "yellow").toLowerCase();
+        const isRed = colour === "red";
+        const panelClass = colour === "red"
+          ? "bg-red-700/95 text-white border-red-200/40"
+          : colour === "orange"
+            ? "bg-orange-400/95 text-slate-950 border-orange-100/60"
+            : "bg-yellow-300/95 text-slate-950 border-yellow-100/70";
+        const title = t.lang === "fr"
+          ? (p.alert_name_fr || p.alert_short_name_fr || p.alert_name_en)
+          : (p.alert_name_en || p.alert_short_name_en || p.alert_name_fr);
+        const body = t.lang === "fr" ? (p.alert_text_fr || p.alert_text_en) : (p.alert_text_en || p.alert_text_fr);
+        const impact = t.lang === "fr" ? (p.impact_fr || p.impact_en) : (p.impact_en || p.impact_fr);
+        const expires = p.expiration_datetime || p.event_end_datetime;
+        const key = p.id || p.feature_id || `${title}-${idx}`;
+        return (
+          <details key={key} className={`rounded-2xl border shadow-lg ${panelClass}`}>
+            <summary className="list-none cursor-pointer px-4 py-3 flex items-start gap-3">
+              <span className={`mt-0.5 w-6 h-6 rounded-full grid place-items-center font-bold shrink-0 ${isRed ? "bg-white text-red-700" : "bg-slate-950 text-white"}`}>!</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs uppercase tracking-wider font-semibold opacity-75">{t("officialAlerts")}</span>
+                <span className="block font-semibold leading-tight mt-0.5">{title || p.alert_type}</span>
+                <span className="block text-xs mt-1 opacity-75">{t("issuedByEccc")}</span>
+              </span>
+              <span aria-hidden="true" className="text-xl leading-none opacity-70">⌄</span>
+            </summary>
+            <div className="px-4 pb-4 text-sm border-t border-current/20 pt-3">
+              {impact && <p className="font-semibold mb-2">{impact}</p>}
+              {body && <p className="whitespace-pre-line leading-relaxed">{body}</p>}
+              {expires && (
+                <p className="text-xs mt-3 opacity-75">
+                  {t("alertUntil")} {new Date(expires).toLocaleString(localeFor(t.lang))}
+                </p>
+              )}
+            </div>
+          </details>
+        );
+      })}
+    </aside>
   );
 }
 
@@ -1215,6 +1307,7 @@ function App() {
     return { name: "Longueuil, Quebec", country: "CA", lat: 45.5312, lon: -73.5183 };
   });
   const [data,  setData]        = useState(null);
+  const [alerts, setAlerts]     = useState([]);
   const [loading, setLoading]   = useState(true);
   const [locating, setLocating] = useState(false);
   const [error, setError]       = useState(null);
@@ -1266,6 +1359,21 @@ function App() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [place.lat, place.lon]);
+
+  // Canadian alerts are official ECCC products. Keep this request separate so
+  // alert service latency or downtime never delays the forecast.
+  useEffect(() => {
+    let cancelled = false;
+    if ((place.country || "").toUpperCase() !== "CA") {
+      setAlerts([]);
+      return () => { cancelled = true; };
+    }
+    setAlerts([]);
+    fetchCanadianAlerts(place.lat, place.lon)
+      .then(items => { if (!cancelled) setAlerts(items); })
+      .catch(() => { if (!cancelled) setAlerts([]); });
+    return () => { cancelled = true; };
+  }, [place.lat, place.lon, place.country]);
 
   // Absolute start index for the hourly strip — "now" for today, midnight for future days.
   const stripStartIdx = useMemo(() => {
@@ -1390,6 +1498,8 @@ function App() {
             {error}
           </div>
         )}
+
+        <AlertBanner alerts={alerts} />
 
         {loading && !data ? (
           <div className="flex items-center justify-center py-24 opacity-80">

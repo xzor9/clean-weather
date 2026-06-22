@@ -9,6 +9,7 @@ A minimalist weather app inspired by Mercury Weather. Real forecasts powered by 
 - **8-day line chart** with separate lines for highs and lows. Tap any day to open a detail panel below with feels-like, precipitation amount and chance, wind speed/gusts/direction, max UV, and sunrise/sunset times.
 - **Stat grid** showing feels like, humidity, wind, and UV index.
 - **City search and geolocation** via Open-Meteo's geocoding API.
+- **Official Canadian weather alerts** from Environment and Climate Change Canada, including warnings, watches, advisories, impact level, and alert details.
 - **°C / °F toggle** with the choice persisted across reloads.
 
 ## Tech
@@ -18,6 +19,7 @@ A minimalist weather app inspired by Mercury Weather. Real forecasts powered by 
 - Babel Standalone for in-browser JSX transpilation
 - SVG charts and icons (no chart library)
 - [Open-Meteo](https://open-meteo.com/) — free weather API, no key required
+- [ECCC GeoMet](https://api.weather.gc.ca/) — official Canadian weather alerts, no key required
 
 ## Project structure
 
@@ -52,6 +54,7 @@ Then open `http://localhost:8000` in your browser.
 ## Credits
 
 - Weather data: [Open-Meteo](https://open-meteo.com/)
+- Canadian weather alerts: [Environment and Climate Change Canada](https://weather.gc.ca/)
 - Design inspiration: [Mercury Weather](https://mercuryweather.app/)
 
 ## License
