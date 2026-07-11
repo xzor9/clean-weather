@@ -340,19 +340,19 @@ function gradientFor(temp, group, isDay) {
     if (group === "partly")return ["#0c1838", "#182448", "#060c20"];
     return                 ["#080e30", "#121c48", "#040818"]; // clear night
   }
-  // Daytime — weather-toned colours (dark enough to keep white text readable)
-  if (group === "storm")  return ["#2d2d3a", "#434355", "#1e1e28"]; // dark purple-grey
-  if (group === "rain")   return ["#263238", "#37474f", "#1a2428"]; // slate grey-blue
-  if (group === "snow")   return ["#2a4a6a", "#4a7090", "#1a3050"]; // icy blue-grey
-  if (group === "fog")    return ["#4a5060", "#6a7080", "#303540"]; // muted grey
-  if (group === "cloud")  return ["#455a64", "#607d8b", "#2c3e47"]; // blue-grey
-  if (group === "partly") return ["#1565c0", "#42a5f5", "#0d47a1"]; // partly-sunny blue
-  // clear sky — temperature-based sky colours
-  if (temp >= 90) return ["#bf360c", "#e64a19", "#870000"]; // scorching orange
-  if (temp >= 75) return ["#0277bd", "#29b6f6", "#01579b"]; // bright warm sky
-  if (temp >= 60) return ["#1565c0", "#1e88e5", "#0d47a1"]; // classic sky blue
-  if (temp >= 40) return ["#1a3a6a", "#2a5a9a", "#0e2550"]; // cool clear blue
-  return                  ["#283593", "#3949ab", "#1a237e"]; // cold indigo
+  // Daytime — deep, muted weather tones make the condition-coloured icons pop.
+  if (group === "storm")  return ["#1f1a38", "#342d5a", "#161227"]; // deep violet-grey
+  if (group === "rain")   return ["#10243c", "#1c3b5a", "#0c1929"]; // midnight rain blue
+  if (group === "snow")   return ["#18334b", "#2b5773", "#10253a"]; // deep ice blue
+  if (group === "fog")    return ["#343a4a", "#50596b", "#252a35"]; // charcoal mist
+  if (group === "cloud")  return ["#233447", "#3a5367", "#192838"]; // slate sky
+  if (group === "partly") return ["#123555", "#1d5f88", "#0c2a45"]; // deep blue sky
+  // Clear sky — temperature-based, deliberately dark backdrops for yellow icons.
+  if (temp >= 90) return ["#7c2d12", "#b45309", "#4a1d0b"]; // deep scorching amber
+  if (temp >= 75) return ["#0c3b60", "#0e5c88", "#082a45"]; // deep warm sky
+  if (temp >= 60) return ["#102f52", "#1e5784", "#0c2642"]; // deep clear blue
+  if (temp >= 40) return ["#162d4d", "#254c75", "#0c203b"]; // cool blue
+  return                  ["#25255c", "#343b83", "#171944"]; // cold indigo
 }
 
 /* ---------------------------------------------------------------------------
