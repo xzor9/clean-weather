@@ -135,6 +135,11 @@ button:disabled {
   font-size: clamp(5rem, 24vw, 8rem);
 }
 
+/* A soft glow keeps colour-coded forecast icons legible on every gradient. */
+.weather-icon {
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.28));
+}
+
 /* Tabular numbers for forecast values that line up across rows */
 .num {
   font-variant-numeric: tabular-nums;

@@ -312,6 +312,21 @@ function weatherIcon(code, isDay = true) {
   return !isDay && info.icon === "sun" ? "moon" : info.icon;
 }
 
+// Keep weather states recognizable at a glance, even before reading the label.
+// These bright tones are chosen to remain clear against the app's dark gradients.
+function weatherIconColor(code, isDay = true) {
+  const group = wxInfo(code).group;
+  if (!isDay && group === "clear") return "#c4b5fd"; // moonlit lavender
+  if (group === "clear")  return "#fde047"; // sunshine yellow
+  if (group === "partly") return "#fbbf24"; // warm sun through cloud
+  if (group === "cloud")  return "#cbd5e1"; // soft blue-grey
+  if (group === "fog")    return "#d1d5db"; // mist grey
+  if (group === "rain")   return "#60a5fa"; // rain blue
+  if (group === "snow")   return "#a5f3fc"; // icy cyan
+  if (group === "storm")  return "#c4b5fd"; // electric violet
+  return "#ffffff";
+}
+
 // Build a gradient based on temperature and condition group (and day/night).
 // Daytime palettes are weather-toned; night palettes stay dark.
 function gradientFor(temp, group, isDay) {
@@ -344,25 +359,26 @@ function gradientFor(temp, group, isDay) {
    Minimalist SVG icons (line style, single color = currentColor)
 --------------------------------------------------------------------------- */
 
-function Icon({ name, className = "w-8 h-8" }) {
+function Icon({ name, className = "w-8 h-8", color, style }) {
   const stroke = { fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" };
+  const iconStyle = color ? { ...style, color } : style;
   switch (name) {
     case "sun":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <circle cx="12" cy="12" r="4" />
           <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
         </svg>
       );
     case "moon":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M20 14.5A7.7 7.7 0 0 1 9.5 4 8 8 0 1 0 20 14.5z" />
         </svg>
       );
     case "partly":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <circle cx="8" cy="9" r="3.2" />
           <path d="M8 2.5v1.5M3.2 9H1.7M4.3 4.3l1 1M11.7 4.3l-1 1" />
           <path d="M17 19a4 4 0 0 0 0-8 5 5 0 0 0-9.6 1.5A3.5 3.5 0 0 0 8 19h9z" />
@@ -370,87 +386,87 @@ function Icon({ name, className = "w-8 h-8" }) {
       );
     case "cloud":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M17 18a4 4 0 0 0 0-8 5 5 0 0 0-9.6 1.5A3.5 3.5 0 0 0 8 18h9z" />
         </svg>
       );
     case "rain":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M17 14a4 4 0 0 0 0-8 5 5 0 0 0-9.6 1.5A3.5 3.5 0 0 0 8 14h9z" />
           <path d="M9 17l-1 3M13 17l-1 3M17 17l-1 3" />
         </svg>
       );
     case "drizzle":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M17 14a4 4 0 0 0 0-8 5 5 0 0 0-9.6 1.5A3.5 3.5 0 0 0 8 14h9z" />
           <path d="M10 17v1.5M14 17v1.5M12 19v1.5" />
         </svg>
       );
     case "snow":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M17 14a4 4 0 0 0 0-8 5 5 0 0 0-9.6 1.5A3.5 3.5 0 0 0 8 14h9z" />
           <path d="M9 18l.01.01M13 18l.01.01M17 18l.01.01M11 20l.01.01M15 20l.01.01" />
         </svg>
       );
     case "sleet":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M17 14a4 4 0 0 0 0-8 5 5 0 0 0-9.6 1.5A3.5 3.5 0 0 0 8 14h9z" />
           <path d="M10 17l-1 2M14 17l-.01.01M17 17l-1 2M12 19l.01.01" />
         </svg>
       );
     case "fog":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M4 10h12M6 14h14M4 18h12" />
         </svg>
       );
     case "storm":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M17 13a4 4 0 0 0 0-8 5 5 0 0 0-9.6 1.5A3.5 3.5 0 0 0 8 13h9z" />
           <path d="M11 14l-2 4h3l-1 4 4-6h-3l1-2z" />
         </svg>
       );
     case "search":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <circle cx="11" cy="11" r="6" />
           <path d="M20 20l-3.5-3.5" />
         </svg>
       );
     case "location":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M12 21s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" />
           <circle cx="12" cy="9" r="2.5" />
         </svg>
       );
     case "wind":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M3 9h12a3 3 0 1 0-3-3M3 15h15a3 3 0 1 1-3 3" />
         </svg>
       );
     case "drop":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M12 3s6 7 6 11a6 6 0 1 1-12 0c0-4 6-11 6-11z" />
         </svg>
       );
     case "uv":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <circle cx="12" cy="12" r="3" />
           <path d="M12 4v2M12 18v2M4 12h2M18 12h2M6 6l1.4 1.4M16.6 16.6L18 18" />
         </svg>
       );
     case "allergy":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M12 20V9" />
           <path d="M12 15c-4.5 0-7-2.7-7-7 4.3 0 7 2.4 7 7z" />
           <path d="M12 12c4.5 0 7-2.7 7-7-4.3 0-7 2.4-7 7z" />
@@ -458,7 +474,7 @@ function Icon({ name, className = "w-8 h-8" }) {
       );
     case "feels":
       return (
-        <svg viewBox="0 0 24 24" className={className} {...stroke}>
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <path d="M10 14V5a2 2 0 1 1 4 0v9a4 4 0 1 1-4 0z" />
         </svg>
       );
@@ -778,7 +794,11 @@ function CurrentSection({ data, units, onClearSelection }) {
           <span className="opacity-70">×</span>
         </button>
       )}
-      <Icon name={weatherIcon(current.weather_code, !!current.is_day)} className="w-14 h-14 sm:w-16 sm:h-16 mx-auto lg:mx-0 opacity-95" />
+      <Icon
+        name={weatherIcon(current.weather_code, !!current.is_day)}
+        color={weatherIconColor(current.weather_code, !!current.is_day)}
+        className="weather-icon w-14 h-14 sm:w-16 sm:h-16 mx-auto lg:mx-0"
+      />
       <div className="hero-temp leading-none font-extralight num mt-2">
         {round(convertTemp(current.temperature_2m, units))}°
       </div>
@@ -990,8 +1010,8 @@ function TempChart({ points, units, secondary = null, height = 170, colWidth = 6
         return (
           <g key={`b-${i}`}>
             <foreignObject x={x - 11} y={H - padBottom + 6} width="22" height="22">
-              <div style={{ color: "#fff", opacity: 0.9 }}>
-                <Icon name={p.icon} className="w-[22px] h-[22px]" />
+              <div className="weather-icon" style={{ color: p.iconColor }}>
+                <Icon name={p.icon} color={p.iconColor} className="w-[22px] h-[22px]" />
               </div>
             </foreignObject>
             <text
@@ -1098,6 +1118,7 @@ function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
       sublabel,
       sublabelColor,
       icon: weatherIcon(codes[i], isDay[i] ?? 1),
+      iconColor: weatherIconColor(codes[i], isDay[i] ?? 1),
       highlight: isToday && i === 0,
     };
   });
@@ -1183,7 +1204,7 @@ function DailyDetail({ data, units, idx }) {
             <div className="text-sm opacity-90">{wxLabel(daily.weather_code[idx], t.lang)}</div>
           </div>
           <div className="flex items-center gap-3">
-            <Icon name={info.icon} className="w-10 h-10 opacity-95" />
+            <Icon name={info.icon} color={weatherIconColor(daily.weather_code[idx])} className="weather-icon w-10 h-10" />
             <div className="text-right">
               <div className="text-2xl num font-medium leading-none">{hi}°</div>
               <div className="text-sm num opacity-75 mt-0.5">{lo}°</div>
@@ -1258,6 +1279,7 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
     temp: convertTemp(daily.temperature_2m_max[i], units),
     label: fmtDay(d, i, t.lang),
     icon: wxInfo(daily.weather_code[i]).icon,
+    iconColor: weatherIconColor(daily.weather_code[i]),
     highlight: i === 0,
     sublabel: ((daily.precipitation_probability_max || [])[i] >= 30)
       ? `${(daily.precipitation_probability_max || [])[i]}%`
@@ -1267,6 +1289,7 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
   const lows = daily.time.map((d, i) => ({
     temp: convertTemp(daily.temperature_2m_min[i], units),
     icon: wxInfo(daily.weather_code[i]).icon,
+    iconColor: weatherIconColor(daily.weather_code[i]),
   }));
 
   return (
