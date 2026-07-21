@@ -109,6 +109,40 @@ function convertTemp(c, units)   { return units === "imperial" ? (c * 9/5) + 32 
 function convertWind(kmh, units) { return units === "imperial" ? kmh * 0.621371 : kmh; }
 function convertPrecip(mm, units){ return units === "imperial" ? mm * 0.0393701 : mm; }
 
+// Open-Meteo's apparent temperature factors in wind, which can make a warm,
+// humid day look cooler than the air temperature. For warm conditions, use the
+// humidex as well and show whichever is more representative of the heat.
+function feelsLikeTemperature(tempC, humidity, apparentC) {
+  const fallback = Number.isFinite(apparentC) ? apparentC : tempC;
+  if (!Number.isFinite(tempC) || !Number.isFinite(humidity) || tempC < 20) return fallback;
+
+  const relativeHumidity = Math.min(100, Math.max(1, humidity));
+  const gamma = Math.log(relativeHumidity / 100) + (17.625 * tempC) / (243.04 + tempC);
+  const dewPoint = (243.04 * gamma) / (17.625 - gamma);
+  const vapourPressure = 6.11 * Math.exp(5417.753 * (1 / 273.16 - 1 / (273.15 + dewPoint)));
+  const humidex = tempC + 0.5555 * (vapourPressure - 10);
+
+  return Math.max(tempC, fallback, humidex);
+}
+
+function dailyFeelsLikeRange(data, dayIdx) {
+  const day = data?.daily?.time?.[dayIdx];
+  const hourly = data?.hourly;
+  if (!day || !hourly?.time) return null;
+
+  const values = hourly.time.reduce((result, time, index) => {
+    if (!time.startsWith(day)) return result;
+    const feelsLike = feelsLikeTemperature(
+      hourly.temperature_2m?.[index],
+      hourly.relative_humidity_2m?.[index],
+      hourly.apparent_temperature?.[index]
+    );
+    return Number.isFinite(feelsLike) ? [...result, feelsLike] : result;
+  }, []);
+
+  return values.length ? { min: Math.min(...values), max: Math.max(...values) } : null;
+}
+
 /* ---------------------------------------------------------------------------
    Internationalization (English / French)
    - STRINGS holds static UI copy; values may be plain strings or functions.
@@ -309,7 +343,10 @@ function uvLabel(uv, lang) {
 
 function weatherIcon(code, isDay = true) {
   const info = wxInfo(code);
-  return !isDay && info.icon === "sun" ? "moon" : info.icon;
+  if (isDay) return info.icon;
+  if (info.icon === "sun") return "moon";
+  if (info.icon === "partly") return "partly-night";
+  return info.icon;
 }
 
 // Keep weather states recognizable at a glance, even before reading the label.
@@ -317,6 +354,7 @@ function weatherIcon(code, isDay = true) {
 function weatherIconColor(code, isDay = true) {
   const group = wxInfo(code).group;
   if (!isDay && group === "clear") return "#c4b5fd"; // moonlit lavender
+  if (!isDay && group === "partly") return "#c4b5fd"; // moon behind cloud
   if (group === "clear")  return "#fde047"; // sunshine yellow
   if (group === "partly") return "#fbbf24"; // warm sun through cloud
   if (group === "cloud")  return "#cbd5e1"; // soft blue-grey
@@ -381,6 +419,13 @@ function Icon({ name, className = "w-8 h-8", color, style }) {
         <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
           <circle cx="8" cy="9" r="3.2" />
           <path d="M8 2.5v1.5M3.2 9H1.7M4.3 4.3l1 1M11.7 4.3l-1 1" />
+          <path d="M17 19a4 4 0 0 0 0-8 5 5 0 0 0-9.6 1.5A3.5 3.5 0 0 0 8 19h9z" />
+        </svg>
+      );
+    case "partly-night":
+      return (
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
+          <path d="M11 4.2a5.2 5.2 0 0 0 2.3 9.9A5.7 5.7 0 1 1 11 4.2z" />
           <path d="M17 19a4 4 0 0 0 0-8 5 5 0 0 0-9.6 1.5A3.5 3.5 0 0 0 8 19h9z" />
         </svg>
       );
@@ -782,6 +827,11 @@ function CurrentSection({ data, units, onClearSelection }) {
   const lo = round(convertTemp(daily.temperature_2m_min[dayIdx], units));
   const isPreview = !!current.__selected;
   const previewLabel = isPreview ? fmtPreviewTime(current.time, t.lang) : null;
+  const feelsLike = feelsLikeTemperature(
+    current.temperature_2m,
+    current.relative_humidity_2m,
+    current.apparent_temperature
+  );
   return (
     <section className="px-4 sm:px-6 lg:px-0 pt-2 pb-4 text-center lg:text-left fade-in">
       {isPreview && (
@@ -804,7 +854,7 @@ function CurrentSection({ data, units, onClearSelection }) {
       </div>
       <div className="text-lg opacity-95">{wxLabel(current.weather_code, t.lang)}</div>
       <div className="text-sm opacity-80 mt-1 num">
-        {t("hiShort")}: {hi}°  ·  {t("loShort")}: {lo}°  ·  {t("feels")} {round(convertTemp(current.apparent_temperature, units))}°
+        {t("hiShort")}: {hi}°  ·  {t("loShort")}: {lo}°  ·  {t("feels")} {round(convertTemp(feelsLike, units))}°
       </div>
     </section>
   );
@@ -829,9 +879,10 @@ function StatGrid({ data, units }) {
   const c = data.current;
   const uv = c.uv_index;
   const windUnit = units === "imperial" ? "mph" : "km/h";
+  const feelsLike = feelsLikeTemperature(c.temperature_2m, c.relative_humidity_2m, c.apparent_temperature);
   return (
     <div className="px-4 sm:px-6 lg:px-0 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3">
-      <StatCard icon="feels" label={t("feelsLike")} value={`${round(convertTemp(c.apparent_temperature, units))}°`} />
+      <StatCard icon="feels" label={t("feelsLike")} value={`${round(convertTemp(feelsLike, units))}°`} />
       <StatCard icon="drop"  label={t("humidity")}  value={`${round(c.relative_humidity_2m)}%`} />
       <StatCard icon="wind"  label={t("wind")}      value={`${round(convertWind(c.wind_speed_10m, units))} ${windUnit}`} />
       <StatCard icon="uv"    label={t("uvIndex")}   value={uv != null ? round(uv) : "—"} sub={uvLabel(uv, t.lang)} />
@@ -1172,8 +1223,9 @@ function DailyDetail({ data, units, idx }) {
   });
   const hi = round(convertTemp(daily.temperature_2m_max[idx], units));
   const lo = round(convertTemp(daily.temperature_2m_min[idx], units));
-  const feelsHi = daily.apparent_temperature_max?.[idx];
-  const feelsLo = daily.apparent_temperature_min?.[idx];
+  const dailyFeelsLike = dailyFeelsLikeRange(data, idx);
+  const feelsHi = dailyFeelsLike?.max ?? daily.apparent_temperature_max?.[idx];
+  const feelsLo = dailyFeelsLike?.min ?? daily.apparent_temperature_min?.[idx];
   const pop = (daily.precipitation_probability_max || [])[idx];
   const precip = (daily.precipitation_sum || [])[idx];
   const wind = (daily.wind_speed_10m_max || [])[idx];
