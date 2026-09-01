@@ -586,6 +586,15 @@ function fmtPrecip(mm, units) {
   return `${Math.round(mm)} mm`;
 }
 
+function precipitationSublabels(probability, mm, units) {
+  const hasAmount = Number.isFinite(mm) && mm >= 0.05;
+  const hasChance = Number.isFinite(probability) && (probability >= 30 || hasAmount);
+  return [
+    hasChance ? `${Math.round(probability)}%` : null,
+    hasAmount ? fmtPrecip(mm, units) : null,
+  ].filter(Boolean);
+}
+
 function compassDir(deg, lang) {
   if (deg == null) return "—";
   // French swaps W (West) for O (Ouest).
@@ -892,9 +901,9 @@ function StatGrid({ data, units }) {
 
 /* ---------------------------------------------------------------------------
    TempChart — SVG line chart used by both hourly and daily forecasts.
-   - `points` is an array of objects: { temp, label, sublabel?, icon, highlight? }
+   - `points` is an array of objects: { temp, label, sublabels?, icon, highlight? }
    - The line is a smooth Catmull-Rom-like curve drawn through every point.
-   - Each point shows: temp label above the dot, then icon, then x-label, then sublabel.
+   - Each point shows: temp label above the dot, then icon, then x-label, then sublabels.
 --------------------------------------------------------------------------- */
 
 // Build a smooth path through a list of [x, y] points using a Catmull-Rom-like cubic.
@@ -1055,9 +1064,10 @@ function TempChart({ points, units, secondary = null, height = 170, colWidth = 6
         );
       })}
 
-      {/* Bottom row: icon + x-label (+ optional sublabel) */}
+      {/* Bottom row: icon + x-label (+ optional sublabels) */}
       {points.map((p, i) => {
         const x = xFor(i);
+        const sublabels = p.sublabels || (p.sublabel ? [p.sublabel] : []);
         return (
           <g key={`b-${i}`}>
             <foreignObject x={x - 11} y={H - padBottom + 6} width="22" height="22">
@@ -1075,18 +1085,19 @@ function TempChart({ points, units, secondary = null, height = 170, colWidth = 6
             >
               {p.label}
             </text>
-            {p.sublabel && (
+            {sublabels.map((sublabel, sublabelIdx) => (
               <text
+                key={`${sublabel}-${sublabelIdx}`}
                 x={x}
-                y={H - padBottom + 51}
+                y={H - padBottom + 51 + sublabelIdx * 12}
                 textAnchor="middle"
                 fontSize="10"
                 fill={p.sublabelColor || "rgba(255,255,255,0.6)"}
                 style={{ fontVariantNumeric: "tabular-nums" }}
               >
-                {p.sublabel}
+                {sublabel}
               </text>
-            )}
+            ))}
           </g>
         );
       })}
@@ -1154,20 +1165,11 @@ function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
 
   const points = times.map((t, i) => {
     const precipMm = precip[i];
-    let sublabel = "";
-    let sublabelColor = "rgba(255,255,255,0.6)";
-    if (precipMm != null && precipMm >= 0.1) {
-      sublabel = fmtPrecip(precipMm, units);
-      sublabelColor = "#7dd3fc";
-    } else if (pop[i] >= 30) {
-      sublabel = `${pop[i]}%`;
-      sublabelColor = "#7dd3fc";
-    }
     return {
       temp: convertTemp(temps[i], units),
       label: isToday && i === 0 ? i18n("now") : fmtHour(t, lang),
-      sublabel,
-      sublabelColor,
+      sublabels: precipitationSublabels(pop[i], precipMm, units),
+      sublabelColor: "#7dd3fc",
       icon: weatherIcon(codes[i], isDay[i] ?? 1),
       iconColor: weatherIconColor(codes[i], isDay[i] ?? 1),
       highlight: isToday && i === 0,
@@ -1189,8 +1191,9 @@ function HourlyStrip({ data, units, selectedIdx, onSelect, selectedDayIdx }) {
         <TempChart
           points={points}
           units={units}
-          height={170}
+          height={182}
           colWidth={64}
+          padBottom={68}
           selectedIdx={selectedIdx}
           onPointClick={onSelect}
         />
@@ -1333,9 +1336,11 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
     icon: wxInfo(daily.weather_code[i]).icon,
     iconColor: weatherIconColor(daily.weather_code[i]),
     highlight: i === 0,
-    sublabel: ((daily.precipitation_probability_max || [])[i] >= 30)
-      ? `${(daily.precipitation_probability_max || [])[i]}%`
-      : "",
+    sublabels: precipitationSublabels(
+      (daily.precipitation_probability_max || [])[i],
+      (daily.precipitation_sum || [])[i],
+      units
+    ),
     sublabelColor: "#7dd3fc",
   }));
   const lows = daily.time.map((d, i) => ({
@@ -1355,10 +1360,10 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
           points={highs}
           secondary={lows}
           units={units}
-          height={230}
+          height={242}
           colWidth={72}
           padTop={36}
-          padBottom={70}
+          padBottom={82}
           selectedIdx={selectedIdx}
           onPointClick={onSelect}
         />
