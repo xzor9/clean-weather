@@ -13,26 +13,58 @@ const { useState, useEffect, useMemo, useRef, useContext, createContext } = Reac
    - Forecast:  https://api.open-meteo.com/v1/forecast
 --------------------------------------------------------------------------- */
 
-async function geocodeCity(query) {
-  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error("Geocoding failed");
-  const j = await r.json();
+async function fetchJson(url, { signal, timeoutMs = 10000, headers, errorMessage = "Request failed" } = {}) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const forwardAbort = () => controller.abort();
+  if (signal?.aborted) forwardAbort();
+  else signal?.addEventListener("abort", forwardAbort, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const r = await fetch(url, { headers, signal: controller.signal });
+    if (!r.ok) throw new Error(errorMessage);
+    return await r.json();
+  } catch (error) {
+    if (timedOut) throw new Error(errorMessage);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+async function geocodeCity(query, lang, signal) {
+  const params = new URLSearchParams({
+    name: query,
+    count: 5,
+    language: lang,
+    format: "json",
+  });
+  const j = await fetchJson(`https://geocoding-api.open-meteo.com/v1/search?${params}`, {
+    signal,
+    errorMessage: "Geocoding failed",
+  });
   return j.results || [];
 }
 
-async function reverseGeocode(lat, lon) {
+async function reverseGeocode(lat, lon, lang, signal) {
   const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
-  const r = await fetch(url, { headers: { "Accept-Language": "en" } });
-  if (!r.ok) return null;
-  const j = await r.json();
+  const j = await fetchJson(url, {
+    signal,
+    headers: { "Accept-Language": lang },
+    errorMessage: "Reverse geocoding failed",
+  });
   const a = j.address || {};
   const name = a.city || a.town || a.village || a.county || null;
   const country = a.country_code?.toUpperCase() || "";
   return name ? { name, country } : null;
 }
 
-async function fetchForecast(lat, lon) {
+async function fetchForecast(lat, lon, signal) {
   const params = new URLSearchParams({
     latitude: lat,
     longitude: lon,
@@ -42,12 +74,14 @@ async function fetchForecast(lat, lon) {
     timezone: "auto",
     forecast_days: 8,
   });
-  const r = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
-  if (!r.ok) throw new Error("Forecast fetch failed");
-  return r.json();
+  return fetchJson(`https://api.open-meteo.com/v1/forecast?${params}`, {
+    signal,
+    timeoutMs: 12000,
+    errorMessage: "Forecast fetch failed",
+  });
 }
 
-async function fetchAllergies(lat, lon) {
+async function fetchAllergies(lat, lon, signal) {
   const params = new URLSearchParams({
     latitude: lat,
     longitude: lon,
@@ -55,13 +89,15 @@ async function fetchAllergies(lat, lon) {
     timezone: "auto",
     forecast_days: 4,
   });
-  const r = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?${params}`);
-  if (!r.ok) return null;
-  const j = await r.json();
+  const j = await fetchJson(`https://air-quality-api.open-meteo.com/v1/air-quality?${params}`, {
+    signal,
+    timeoutMs: 12000,
+    errorMessage: "Pollen fetch failed",
+  });
   return j?.hourly?.time ? j : null;
 }
 
-async function fetchCanadianAlerts(lat, lon) {
+async function fetchCanadianAlerts(lat, lon, signal) {
   // GeoMet accepts a bounding box in longitude/latitude order. A small box
   // around the selected point reliably intersects any active alert polygon.
   const radius = 0.01;
@@ -70,31 +106,27 @@ async function fetchCanadianAlerts(lat, lon) {
     bbox: [lon - radius, lat - radius, lon + radius, lat + radius].join(","),
     limit: 50,
   });
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  try {
-    const r = await fetch(
-      `https://api.weather.gc.ca/collections/weather-alerts/items?${params}`,
-      { signal: controller.signal }
-    );
-    if (!r.ok) throw new Error("Alert fetch failed");
-    const j = await r.json();
-    const unique = new Map();
-    for (const feature of j.features || []) {
-      const p = feature.properties || {};
-      const key = p.id || p.feature_id || `${p.alert_code}-${p.publication_datetime}`;
-      if (!unique.has(key)) unique.set(key, feature);
-    }
-    return [...unique.values()];
-  } finally {
-    clearTimeout(timeout);
+  const j = await fetchJson(`https://api.weather.gc.ca/collections/weather-alerts/items?${params}`, {
+    signal,
+    timeoutMs: 8000,
+    errorMessage: "Alert fetch failed",
+  });
+  const unique = new Map();
+  for (const feature of j.features || []) {
+    const p = feature.properties || {};
+    const key = p.id || p.feature_id || `${p.alert_code}-${p.publication_datetime}`;
+    if (!unique.has(key)) unique.set(key, feature);
   }
+  return [...unique.values()];
 }
 
-async function fetchWeatherBundle(lat, lon) {
+async function fetchWeatherBundle(lat, lon, signal) {
   const [forecast, allergies] = await Promise.all([
-    fetchForecast(lat, lon),
-    fetchAllergies(lat, lon).catch(() => null),
+    fetchForecast(lat, lon, signal),
+    fetchAllergies(lat, lon, signal).catch(error => {
+      if (error.name === "AbortError") throw error;
+      return null;
+    }),
   ]);
   return { ...forecast, allergies };
 }
@@ -159,7 +191,14 @@ const STRINGS = {
     useMyLocation: "Use my location",
     searchCity: "Search city",
     searchPlaceholder: "Search a city",
+    searching: "Searching…",
+    searchResults: "Search results",
+    searchUnavailable: "Unable to search right now.",
     go: "Go",
+    refreshForecast: "Refresh forecast",
+    retry: "Retry",
+    forecastUnavailable: "Unable to update the forecast.",
+    showingDataFrom: "Showing data from",
     previewing: "Previewing",
     hiShort: "H",
     loShort: "L",
@@ -202,7 +241,14 @@ const STRINGS = {
     useMyLocation: "Utiliser ma position",
     searchCity: "Rechercher une ville",
     searchPlaceholder: "Rechercher une ville",
+    searching: "Recherche…",
+    searchResults: "Résultats de recherche",
+    searchUnavailable: "Recherche temporairement indisponible.",
     go: "OK",
+    refreshForecast: "Actualiser les prévisions",
+    retry: "Réessayer",
+    forecastUnavailable: "Impossible d’actualiser les prévisions.",
+    showingDataFrom: "Données affichées depuis",
     previewing: "Aperçu",
     hiShort: "Max",
     loShort: "Min",
@@ -483,6 +529,14 @@ function Icon({ name, className = "w-8 h-8", color, style }) {
           <path d="M20 20l-3.5-3.5" />
         </svg>
       );
+    case "refresh":
+      return (
+        <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
+          <path d="M20 7v5h-5" />
+          <path d="M4 17v-5h5" />
+          <path d="M6.1 9a7 7 0 0 1 11.7-2L20 9M4 15l2.2 2a7 7 0 0 0 11.7-2" />
+        </svg>
+      );
     case "location":
       return (
         <svg viewBox="0 0 24 24" className={className} style={iconStyle} {...stroke}>
@@ -715,9 +769,27 @@ function UnitToggle({ units, setUnits }) {
   );
 }
 
-function TopBar({ place, onSearch, onLocate, query, setQuery, locating }) {
+function TopBar({
+  place,
+  onSearch,
+  onSelectResult,
+  onClearSearch,
+  onLocate,
+  onRefresh,
+  query,
+  setQuery,
+  locating,
+  refreshing,
+  searching,
+  searchError,
+  searchResults,
+}) {
   const [open, setOpen] = useState(false);
   const t = useT();
+  const toggleSearch = () => {
+    if (open) onClearSearch();
+    setOpen(value => !value);
+  };
   return (
     <header className="px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-3">
       <div className="max-w-6xl mx-auto flex items-center gap-3">
@@ -737,34 +809,82 @@ function TopBar({ place, onSearch, onLocate, query, setQuery, locating }) {
           <div className="text-xl sm:text-2xl font-semibold leading-tight truncate">{place?.name || "—"}</div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => { if (open) setQuery(""); setOpen(o => !o); }}
-          title={t("searchCity")}
-          aria-label={t("searchCity")}
-          className="icon-btn"
-          aria-expanded={open}
-        >
-          <Icon name="search" className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            title={t("refreshForecast")}
+            aria-label={t("refreshForecast")}
+            disabled={refreshing}
+            className="icon-btn"
+          >
+            <Icon name="refresh" className={`w-5 h-5 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            type="button"
+            onClick={toggleSearch}
+            title={t("searchCity")}
+            aria-label={t("searchCity")}
+            className="icon-btn"
+            aria-expanded={open}
+            aria-controls="city-search-panel"
+          >
+            <Icon name="search" className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {open && (
-        <div className="absolute left-0 right-0 top-20 px-4 sm:px-6 lg:px-8 z-20">
-          <form
-            onSubmit={(e) => { e.preventDefault(); onSearch(query); setOpen(false); }}
-            className="glass-strong search-panel mx-auto max-w-2xl p-2 flex items-center gap-2"
-          >
-            <Icon name="search" className="w-5 h-5 ml-2 opacity-80" />
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("searchPlaceholder")}
-              className="min-h-11 flex-1 bg-transparent outline-none placeholder-white/60 px-1"
-            />
-            <button type="submit" className="min-h-11 px-4 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-medium">{t("go")}</button>
-          </form>
+        <div id="city-search-panel" className="absolute left-0 right-0 top-20 px-4 sm:px-6 lg:px-8 z-20">
+          <div className="glass-strong search-panel mx-auto max-w-2xl overflow-hidden" aria-busy={searching}>
+            <form
+              onSubmit={(e) => { e.preventDefault(); onSearch(query); }}
+              className="p-2 flex items-center gap-2"
+            >
+              <Icon name="search" className="w-5 h-5 ml-2 opacity-80" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("searchPlaceholder")}
+                aria-label={t("searchCity")}
+                className="min-h-11 flex-1 bg-transparent outline-none placeholder-white/60 px-1"
+              />
+              <button
+                type="submit"
+                disabled={searching || !query.trim()}
+                className="min-h-11 px-4 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-medium"
+              >
+                {searching ? t("searching") : t("go")}
+              </button>
+            </form>
+            {searchResults.length > 0 && (
+              <div className="border-t border-white/15 p-2" aria-label={t("searchResults")}>
+                <div className="px-3 pt-1 pb-2 text-[10px] uppercase tracking-wider opacity-65">{t("searchResults")}</div>
+                <div className="max-h-72 overflow-y-auto">
+                  {searchResults.map(result => {
+                    const region = [result.admin1, result.country].filter(Boolean).join(", ");
+                    return (
+                      <button
+                        type="button"
+                        key={result.id || `${result.latitude},${result.longitude}`}
+                        onClick={() => { onSelectResult(result); setOpen(false); }}
+                        className="w-full min-h-12 px-3 py-2 rounded-xl text-left hover:bg-white/15 focus-visible:bg-white/15 transition"
+                      >
+                        <span className="block font-medium leading-tight">{result.name}</span>
+                        {region && <span className="block text-xs opacity-70 mt-0.5">{region}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {searchError && (
+              <div role="alert" className="border-t border-white/15 px-4 py-3 text-sm">
+                {searchError}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </header>
@@ -1378,6 +1498,9 @@ function DailyList({ data, units, selectedIdx, onSelect }) {
    App
 --------------------------------------------------------------------------- */
 
+const AUTO_REFRESH_MS = 10 * 60 * 1000;
+const FOCUS_REFRESH_MS = 5 * 60 * 1000;
+
 function App() {
   const [place, setPlace] = useState(() => {
     try {
@@ -1391,11 +1514,20 @@ function App() {
   const [loading, setLoading]   = useState(true);
   const [locating, setLocating] = useState(false);
   const [error, setError]       = useState(null);
+  const [forecastError, setForecastError] = useState(null);
   const [query, setQuery]       = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(null);
   const [fetchedAt, setFetchedAt]             = useState(null);
+  const [refreshKey, setRefreshKey]           = useState(0);
   const [selectedHourIdx, setSelectedHourIdx] = useState(null); // null = "Now"
   const [selectedDayIdx,  setSelectedDayIdx]  = useState(0);    // 0 = Today
   const locateRequestRef = useRef(0);
+  const locateAbortRef = useRef(null);
+  const searchRequestRef = useRef(0);
+  const searchAbortRef = useRef(null);
+  const loadedLocationRef = useRef(null);
   const [units, setUnits]       = useState(() => {
     try { return localStorage.getItem("cleanweather.units") || "metric"; }
     catch { return "metric"; }
@@ -1426,34 +1558,79 @@ function App() {
     document.documentElement.lang = lang;
   }, [lang]);
 
-  // Load forecast whenever place or units change. Reset selections too.
+  // Load forecasts for a new place or an explicit/automatic refresh. Abort the
+  // previous request so rapid changes cannot waste bandwidth or update stale UI.
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    const locationKey = `${place.lat},${place.lon}`;
+    const locationChanged = loadedLocationRef.current && loadedLocationRef.current !== locationKey;
+    if (locationChanged) {
+      setData(null);
+      setFetchedAt(null);
+    }
     setLoading(true);
-    setError(null);
+    setForecastError(null);
     setSelectedHourIdx(null);
     setSelectedDayIdx(0);
-    fetchWeatherBundle(place.lat, place.lon)
-      .then(d => { if (!cancelled) { setData(d); setFetchedAt(new Date()); } })
-      .catch(e => { if (!cancelled) setError(e.message); })
+    fetchWeatherBundle(place.lat, place.lon, controller.signal)
+      .then(d => {
+        if (!cancelled) {
+          loadedLocationRef.current = locationKey;
+          setData(d);
+          setFetchedAt(new Date());
+        }
+      })
+      .catch(e => {
+        if (!cancelled && e.name !== "AbortError") setForecastError(tr(lang, "forecastUnavailable"));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [place.lat, place.lon]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [place.lat, place.lon, refreshKey]);
+
+  // Keep long-lived tabs fresh. A focused tab refreshes only when its data is
+  // old enough; reconnecting after an offline period refreshes immediately.
+  useEffect(() => {
+    const refresh = () => setRefreshKey(value => value + 1);
+    const interval = setInterval(refresh, AUTO_REFRESH_MS);
+    const handleFocus = () => {
+      if (!fetchedAt || Date.now() - fetchedAt.getTime() >= FOCUS_REFRESH_MS) refresh();
+    };
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("online", refresh);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("online", refresh);
+    };
+  }, [fetchedAt]);
 
   // Canadian alerts are official ECCC products. Keep this request separate so
   // alert service latency or downtime never delays the forecast.
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     if ((place.country || "").toUpperCase() !== "CA") {
       setAlerts([]);
-      return () => { cancelled = true; };
+      return () => {
+        cancelled = true;
+        controller.abort();
+      };
     }
     setAlerts([]);
-    fetchCanadianAlerts(place.lat, place.lon)
+    fetchCanadianAlerts(place.lat, place.lon, controller.signal)
       .then(items => { if (!cancelled) setAlerts(items); })
-      .catch(() => { if (!cancelled) setAlerts([]); });
-    return () => { cancelled = true; };
-  }, [place.lat, place.lon, place.country]);
+      .catch(error => {
+        if (!cancelled && error.name !== "AbortError") setAlerts([]);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [place.lat, place.lon, place.country, refreshKey]);
 
   // Absolute start index for the hourly strip — "now" for today, midnight for future days.
   const stripStartIdx = useMemo(() => {
@@ -1498,26 +1675,62 @@ function App() {
 
   const handleSearch = async (q) => {
     if (!q?.trim()) return;
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
     try {
-      locateRequestRef.current += 1;
-      setLocating(false);
-      setError(null);
-      const results = await geocodeCity(q);
-      if (!results.length) { setError(tr_("noMatches", q)); return; }
-      const r = results[0];
-      setPlace({
-        name: r.name + (r.admin1 ? `, ${r.admin1}` : ""),
-        country: r.country_code,
-        lat: r.latitude,
-        lon: r.longitude,
-      });
+      setSearching(true);
+      setSearchResults([]);
+      setSearchError(null);
+      const results = await geocodeCity(q.trim(), lang, controller.signal);
+      if (searchRequestRef.current !== requestId) return;
+      if (!results.length) { setSearchError(tr_("noMatches", q)); return; }
+      setSearchResults(results);
     } catch (e) {
-      setError(e.message);
+      if (e.name !== "AbortError" && searchRequestRef.current === requestId) setSearchError(tr_("searchUnavailable"));
+    } finally {
+      if (searchRequestRef.current === requestId) setSearching(false);
     }
+  };
+
+  const handleQueryChange = (value) => {
+    searchAbortRef.current?.abort();
+    searchRequestRef.current += 1;
+    setSearching(false);
+    setSearchResults([]);
+    setSearchError(null);
+    setQuery(value);
+  };
+
+  const handleClearSearch = () => {
+    searchAbortRef.current?.abort();
+    searchRequestRef.current += 1;
+    setSearching(false);
+    setSearchResults([]);
+    setSearchError(null);
+    setQuery("");
+  };
+
+  const handleSelectSearchResult = (result) => {
+    locateAbortRef.current?.abort();
+    locateRequestRef.current += 1;
+    setLocating(false);
+    handleClearSearch();
+    setPlace({
+      name: result.name + (result.admin1 ? `, ${result.admin1}` : ""),
+      country: result.country_code,
+      lat: result.latitude,
+      lon: result.longitude,
+    });
   };
 
   const handleLocate = () => {
     if (!navigator.geolocation) { setError(tr_("geolocationUnavailable")); return; }
+    locateAbortRef.current?.abort();
+    const controller = new AbortController();
+    locateAbortRef.current = controller;
     const requestId = locateRequestRef.current + 1;
     locateRequestRef.current = requestId;
     setLocating(true);
@@ -1526,7 +1739,7 @@ function App() {
       const { latitude, longitude } = pos.coords;
       setPlace({ name: tr_("currentLocation"), country: "", lat: latitude, lon: longitude });
       try {
-        const geo = await reverseGeocode(latitude, longitude);
+        const geo = await reverseGeocode(latitude, longitude, lang, controller.signal);
         if (geo && locateRequestRef.current === requestId) {
           setPlace(prev => (
             prev.lat === latitude && prev.lon === longitude
@@ -1567,15 +1780,43 @@ function App() {
         <TopBar
           place={place}
           query={query}
-          setQuery={setQuery}
+          setQuery={handleQueryChange}
           onSearch={handleSearch}
+          onSelectResult={handleSelectSearchResult}
+          onClearSearch={handleClearSearch}
           onLocate={handleLocate}
+          onRefresh={() => setRefreshKey(value => value + 1)}
           locating={locating}
+          refreshing={loading}
+          searching={searching}
+          searchError={searchError}
+          searchResults={searchResults}
         />
 
         {error && (
-          <div className="mx-4 sm:mx-6 lg:mx-auto lg:max-w-6xl mt-2 glass rounded-xl px-4 py-2 text-sm">
+          <div role="alert" className="mx-4 sm:mx-6 lg:mx-auto lg:max-w-6xl mt-2 glass rounded-xl px-4 py-2 text-sm">
             {error}
+          </div>
+        )}
+
+        {forecastError && (
+          <div role="alert" className="mx-4 sm:mx-6 lg:mx-auto lg:max-w-6xl mt-2 glass rounded-xl px-4 py-3 text-sm flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div>{forecastError}</div>
+              {data && fetchedAt && (
+                <div className="text-xs opacity-70 mt-0.5">
+                  {tr_("showingDataFrom")} {fetchedAt.toLocaleTimeString(localeFor(lang))}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setRefreshKey(value => value + 1)}
+              disabled={loading}
+              className="min-h-10 px-3 rounded-xl bg-white/15 hover:bg-white/25 font-medium shrink-0"
+            >
+              {tr_("retry")}
+            </button>
           </div>
         )}
 
